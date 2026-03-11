@@ -76,7 +76,7 @@ class TinyGardenTools(val onFunctionCalled: (command: TinyGardenCommand) -> Unit
         "daisy" -> TinyGardenItem.DAISY.ordinal
         "rose" -> TinyGardenItem.ROSE.ordinal
         "special",
-        "edge gallery",
+        "easy health",
         "secret" -> TinyGardenItem.SPECIAL.ordinal
         else -> -1
       } + 1

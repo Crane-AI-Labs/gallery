@@ -29,3 +29,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Gradle build caches and daemon state (binary, machine-specific — never commit)
+gradle/caches/
+gradle/daemon/

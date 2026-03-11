@@ -60,6 +60,14 @@ message LlmConfig {
   bool support_mobile_actions = 9;
 }
 
+message HealthDemoApiConfig {
+  string med_gemma_endpoint = 1;
+  string med_gemma_api_key = 2;
+  string asr_endpoint = 3;
+  string asr_api_key = 4;
+  string system_prompt = 5;
+}
+
 message Settings {
   Theme theme = 1;
   AccessTokenData access_token_data = 2;  // deprecated
@@ -67,6 +75,7 @@ message Settings {
   repeated ImportedModel imported_model = 4;
   bool is_tos_accepted = 5;
   bool has_run_tiny_garden = 6;
+  HealthDemoApiConfig health_demo_api_config = 7;
 }
 
 message UserData {

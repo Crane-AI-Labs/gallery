@@ -18,6 +18,7 @@ package com.google.ai.edge.gallery.data
 
 import androidx.datastore.core.DataStore
 import com.google.ai.edge.gallery.proto.AccessTokenData
+import com.google.ai.edge.gallery.proto.HealthDemoApiConfig
 import com.google.ai.edge.gallery.proto.ImportedModel
 import com.google.ai.edge.gallery.proto.Settings
 import com.google.ai.edge.gallery.proto.Theme
@@ -52,6 +53,10 @@ interface DataStoreRepository {
   fun getHasRunTinyGarden(): Boolean
 
   fun setHasRunTinyGarden(hasRun: Boolean)
+
+  fun saveHealthDemoApiConfig(config: HealthDemoApiConfig)
+
+  fun readHealthDemoApiConfig(): HealthDemoApiConfig?
 }
 
 /** Repository for managing data using Proto DataStore. */
@@ -165,6 +170,21 @@ class DefaultDataStoreRepository(
   override fun setHasRunTinyGarden(hasRun: Boolean) {
     runBlocking {
       dataStore.updateData { settings -> settings.toBuilder().setHasRunTinyGarden(hasRun).build() }
+    }
+  }
+
+  override fun saveHealthDemoApiConfig(config: HealthDemoApiConfig) {
+    runBlocking {
+      dataStore.updateData { settings ->
+        settings.toBuilder().setHealthDemoApiConfig(config).build()
+      }
+    }
+  }
+
+  override fun readHealthDemoApiConfig(): HealthDemoApiConfig? {
+    return runBlocking {
+      val settings = dataStore.data.first()
+      if (settings.hasHealthDemoApiConfig()) settings.healthDemoApiConfig else null
     }
   }
 }

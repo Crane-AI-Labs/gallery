@@ -89,3 +89,10 @@ val inversePrimaryDark = Color(0xFF0B57D0)
 val surfaceDimDark = Color(0xFF131314)
 val surfaceBrightDark = Color(0xFF37393B)
 val scrimDark = Color(0xFF000000)
+
+// Health Demo Colors
+val healthTeal = Color(0xFF00897B)
+val healthTealLight = Color(0xFFE0F2F1)
+val healthYellow = Color(0xFFFFF9C4)
+val healthBlue = Color(0xFFE3F2FD)
+val healthOrange = Color(0xFFFFE0B2)

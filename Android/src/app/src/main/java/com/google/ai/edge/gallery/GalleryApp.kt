@@ -17,8 +17,11 @@
 package com.google.ai.edge.gallery
 
 import androidx.compose.runtime.Composable
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
+import com.google.ai.edge.gallery.healthdemo.ui.navigation.HealthDemoNavGraph
+import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.navigation.GalleryNavHost
 
@@ -28,5 +31,14 @@ fun GalleryApp(
   navController: NavHostController = rememberNavController(),
   modelManagerViewModel: ModelManagerViewModel,
 ) {
-  GalleryNavHost(navController = navController, modelManagerViewModel = modelManagerViewModel)
+  // Demo Mode Toggle: Set to true for the health companion demo.
+  // Set to false to return to the original Easy Health.
+  val isDemoMode = true
+
+  if (isDemoMode) {
+    val healthDemoViewModel: HealthDemoViewModel = hiltViewModel()
+    HealthDemoNavGraph(viewModel = healthDemoViewModel)
+  } else {
+    GalleryNavHost(navController = navController, modelManagerViewModel = modelManagerViewModel)
+  }
 }
