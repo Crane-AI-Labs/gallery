@@ -33,7 +33,7 @@ android {
   ndkVersion = "27.1.12297006"
 
   defaultConfig {
-    applicationId = "com.google.aiedge.gallery"
+    applicationId = "com.craneailabs.easehealth"
     minSdk = 31
     targetSdk = 35
     versionCode = 17
@@ -42,7 +42,7 @@ android {
     // Needed for HuggingFace auth workflows.
     // Use the scheme of the "Redirect URLs" in HuggingFace app.
     manifestPlaceholders["appAuthRedirectScheme"] =
-        "com.google.ai.edge.gallery"
+        "com.craneailabs.easehealth"
     manifestPlaceholders["applicationName"] = "com.google.ai.edge.gallery.GalleryApplication"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

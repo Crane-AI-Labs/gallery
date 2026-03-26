@@ -69,8 +69,7 @@ object LlmChatModelHelper {
     }
 
     try {
-      // Use 0 GPU layers on emulator/CPU, could be configurable later
-      val nGpuLayers = 0
+      val nGpuLayers = 99  // offload as many layers as possible to GPU
       val nCtx = maxTokens.coerceIn(512, 4096)
 
       val handle = LlamaCpp.initModel(modelPath, nCtx, nGpuLayers)

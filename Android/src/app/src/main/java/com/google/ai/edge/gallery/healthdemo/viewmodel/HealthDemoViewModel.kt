@@ -34,7 +34,7 @@ private const val TAG = "HealthDemoViewModel"
 private const val DEFAULT_MODEL_PATH = "/data/local/tmp/medgemma-v5b-Q4_0.gguf"
 private const val MMPROJ_PATH = "/data/local/tmp/medgemma-mmproj-Q8_0.gguf"
 private const val N_CTX = 2048
-private const val N_GPU_LAYERS = 0
+private const val N_GPU_LAYERS = 99  // offload as many layers as possible to GPU
 
 data class HealthDemoUiState(
     // Role selection

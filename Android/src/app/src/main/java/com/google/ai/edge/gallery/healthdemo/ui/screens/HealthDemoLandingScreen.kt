@@ -154,7 +154,7 @@ fun HealthDemoLandingScreen(onStartAssessment: () -> Unit) {
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = "Health Companion",
+                    text = "Ease Health",
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF1F1F1F),

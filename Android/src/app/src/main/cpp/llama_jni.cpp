@@ -67,6 +67,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitModel(
     auto ctx_params = llama_context_default_params();
     ctx_params.n_ctx = nCtx;
     ctx_params.n_batch = 512;
+    ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
 
     llama_context * ctx = llama_init_from_model(model, ctx_params);
     if (!ctx) {
