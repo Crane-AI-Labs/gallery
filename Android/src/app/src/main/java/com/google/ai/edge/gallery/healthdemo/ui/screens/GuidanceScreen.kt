@@ -29,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +58,15 @@ fun GuidanceScreen(
     val guidance = uiState.guidance ?: return
     val isSaved = uiState.savedAssessment != null
     var showNewAssessmentDialog by remember { mutableStateOf(false) }
+
+    // Auto-save when guidance is first displayed
+    LaunchedEffect(guidance) {
+        if (!isSaved) {
+            val assessment = viewModel.buildSavedAssessment()
+            repository.save(assessment)
+            viewModel.markSaved(assessment)
+        }
+    }
 
     // Dialog: "You have an unfinished assessment"
     if (showNewAssessmentDialog) {
@@ -162,7 +172,68 @@ fun GuidanceScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Triage Level Badge
+            if (guidance.triageLevel.isNotBlank()) {
+                val triageColor = when {
+                    guidance.triageLevel.contains("Emergency", ignoreCase = true) -> Color(0xFFD32F2F)
+                    guidance.triageLevel.contains("Urgent", ignoreCase = true) -> Color(0xFFE65100)
+                    guidance.triageLevel.contains("Routine", ignoreCase = true) -> Color(0xFF1565C0)
+                    guidance.triageLevel.contains("Home", ignoreCase = true) -> Color(0xFF2E7D32)
+                    else -> Color(0xFF616161)
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = triageColor,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Triage Level",
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.8f)
+                        )
+                        Text(
+                            text = guidance.triageLevel,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Confidence Indicator
+            if (guidance.confidence.isNotBlank()) {
+                val confColor = when (guidance.confidence.lowercase()) {
+                    "high" -> Color(0xFF2E7D32)
+                    "medium" -> Color(0xFFE65100)
+                    else -> Color(0xFFD32F2F)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, confColor.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(confColor, CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Confidence: ${guidance.confidence.replaceFirstChar { it.uppercase() }}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = confColor
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             // Possible Condition
             Text(
@@ -197,7 +268,7 @@ fun GuidanceScreen(
 
             // Recommended Next Steps
             Text(
-                text = "Recommended Next Steps",
+                text = "Follow-up & Monitoring",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1F1F1F)
@@ -208,47 +279,59 @@ fun GuidanceScreen(
                 Spacer(modifier = Modifier.height(6.dp))
             }
 
+            // Red Flags / Danger Signs
+            if (guidance.redFlags.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFDE8E8),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Danger Signs: Refer Immediately If",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFD32F2F)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        guidance.redFlags.forEach { flag ->
+                            Row(verticalAlignment = Alignment.Top) {
+                                Text("  ", fontSize = 14.sp, color = Color(0xFFD32F2F))
+                                Text(flag, fontSize = 13.sp, color = Color(0xFFB71C1C), lineHeight = 18.sp)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
         }
 
         // Bottom actions
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-            Button(
-                onClick = {
-                    if (!isSaved) {
-                        val assessment = viewModel.buildSavedAssessment()
-                        repository.save(assessment)
-                        viewModel.markSaved(assessment)
-                    }
-                },
-                enabled = !isSaved,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = NavyBlue,
-                    disabledContainerColor = Color(0xFF9E9E9E)
-                )
-            ) {
-                Text(
-                    text = "Save Assessment",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.White
-                )
+            // Auto-saved indicator
+            if (isSaved) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFE8F5E9),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Assessment saved automatically.",
+                        modifier = Modifier.padding(12.dp),
+                        fontSize = 13.sp,
+                        color = Color(0xFF2E7D32)
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            OutlinedButton(
+            Button(
                 onClick = {
-                    if (!isSaved) {
-                        showNewAssessmentDialog = true
-                    } else {
-                        viewModel.resetAssessment()
-                        onFeedback()
-                    }
+                    viewModel.resetAssessment()
+                    onCreateNew()
                 },
                 modifier = Modifier
                     .fillMaxWidth()

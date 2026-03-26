@@ -44,7 +44,12 @@ fun HealthDemoNavGraph(
         composable(HealthDemoDestinations.LANDING) {
             HealthDemoLandingScreen(
                 onStartAssessment = {
-                    navController.navigate(HealthDemoDestinations.SELECT_ROLE)
+                    // Skip role selection if role was already set
+                    if (viewModel.uiState.value.role != null) {
+                        navController.navigate(HealthDemoDestinations.PATIENT_ASSESSMENT)
+                    } else {
+                        navController.navigate(HealthDemoDestinations.SELECT_ROLE)
+                    }
                 }
             )
         }
@@ -78,7 +83,8 @@ fun HealthDemoNavGraph(
                 viewModel = viewModel,
                 repository = repository,
                 onCreateNew = {
-                    navController.navigate(HealthDemoDestinations.SELECT_ROLE) {
+                    viewModel.clearGuidance()
+                    navController.navigate(HealthDemoDestinations.PATIENT_ASSESSMENT) {
                         popUpTo(HealthDemoDestinations.LANDING)
                     }
                 },
@@ -125,7 +131,7 @@ fun HealthDemoNavGraph(
             FeedbackScreen(
                 onSubmit = {
                     viewModel.resetAssessment()
-                    navController.navigate(HealthDemoDestinations.SELECT_ROLE) {
+                    navController.navigate(HealthDemoDestinations.PATIENT_ASSESSMENT) {
                         popUpTo(HealthDemoDestinations.LANDING)
                     }
                 },

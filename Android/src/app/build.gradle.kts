@@ -30,6 +30,7 @@ plugins {
 android {
   namespace = "com.google.ai.edge.gallery"
   compileSdk = 35
+  ndkVersion = "27.1.12297006"
 
   defaultConfig {
     applicationId = "com.google.aiedge.gallery"
@@ -45,6 +46,17 @@ android {
     manifestPlaceholders["applicationName"] = "com.google.ai.edge.gallery.GalleryApplication"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    ndk {
+      abiFilters += listOf("arm64-v8a", "x86_64")
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path = file("src/main/cpp/CMakeLists.txt")
+      version = "3.22.1"
+    }
   }
 
   buildTypes {
@@ -87,12 +99,9 @@ dependencies {
   implementation(libs.androidx.lifecycle.process)
   implementation(libs.androidx.security.crypto)
   implementation(libs.androidx.webkit)
-  implementation(libs.litertlm)
   implementation(libs.commonmark)
+  implementation(libs.onnxruntime.android)
   implementation(libs.richtext)
-  implementation(libs.tflite)
-  implementation(libs.tflite.gpu)
-  implementation(libs.tflite.support)
   implementation(libs.camerax.core)
   implementation(libs.camerax.camera2)
   implementation(libs.camerax.lifecycle)

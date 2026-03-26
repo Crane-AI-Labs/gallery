@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -36,7 +37,9 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +56,12 @@ import com.google.ai.edge.gallery.healthdemo.data.PatientRole
 import com.google.ai.edge.gallery.healthdemo.data.Sex
 import com.google.ai.edge.gallery.healthdemo.data.VitalSigns
 import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 
 private val NavyBlue = Color(0xFF0D1B5E)
 
@@ -65,8 +74,39 @@ fun EnterSymptomsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val canContinue = uiState.symptoms.isNotBlank()
+    val hasImage = uiState.capturedImageBytes != null
 
     var ageDropdownExpanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var audioPermissionGranted by remember { mutableStateOf(false) }
+
+    // Permission launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> audioPermissionGranted = granted }
+
+    // Check permission on first composition
+    LaunchedEffect(Unit) {
+        audioPermissionGranted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    // Image picker (file picker for images)
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+                if (bytes != null) {
+                    viewModel.setCapturedImage(bytes)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("EnterSymptoms", "Failed to read image", e)
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -178,25 +218,39 @@ fun EnterSymptomsScreen(
             Spacer(modifier = Modifier.height(10.dp))
             Row {
                 OutlinedButton(
-                    onClick = { /* voice note – future */ },
+                    onClick = {
+                        if (!audioPermissionGranted) {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else if (uiState.isRecording) {
+                            viewModel.stopVoiceRecording()
+                        } else {
+                            viewModel.startVoiceRecording()
+                        }
+                    },
                     shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
+                    border = BorderStroke(1.dp, if (uiState.isRecording) Color(0xFFD32F2F) else if (uiState.isTranscribing) Color(0xFFE65100) else Color(0xFFE0E0E0)),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.Mic, contentDescription = null, tint = Color(0xFF444746), modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Add Voice Note", color = Color(0xFF1F1F1F), fontSize = 13.sp)
+                    if (uiState.isTranscribing) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color(0xFFE65100))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Transcribing...", color = Color(0xFFE65100), fontSize = 13.sp)
+                    } else {
+                        Icon(Icons.Default.Mic, contentDescription = null, tint = if (uiState.isRecording) Color(0xFFD32F2F) else Color(0xFF444746), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (uiState.isRecording) "Recording..." else "Voice Note", color = if (uiState.isRecording) Color(0xFFD32F2F) else Color(0xFF1F1F1F), fontSize = 13.sp)
+                    }
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 OutlinedButton(
-                    onClick = { /* camera – future */ },
+                    onClick = { imagePickerLauncher.launch("image/*") },
                     shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
+                    border = BorderStroke(1.dp, if (hasImage) Color(0xFF2E7D32) else Color(0xFFE0E0E0)),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color(0xFF444746), modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = if (hasImage) Color(0xFF2E7D32) else Color(0xFF444746), modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Capture Image", color = Color(0xFF1F1F1F), fontSize = 13.sp)
+                    Text(if (hasImage) "Image Added" else "Add Image", color = if (hasImage) Color(0xFF2E7D32) else Color(0xFF1F1F1F), fontSize = 13.sp)
                 }
             }
 
@@ -304,12 +358,18 @@ fun EnterSymptomsScreen(
 
         // Bottom buttons
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+            // Navigate when guidance becomes available
+            LaunchedEffect(uiState.guidance) {
+                if (uiState.guidance != null && !uiState.isProcessing) {
+                    onContinue()
+                }
+            }
+
             Button(
                 onClick = {
                     viewModel.getGuidance()
-                    onContinue()
                 },
-                enabled = canContinue,
+                enabled = canContinue && !uiState.isProcessing,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -319,7 +379,38 @@ fun EnterSymptomsScreen(
                     disabledContainerColor = Color(0xFF9E9E9E)
                 )
             ) {
-                Text("Continue", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                if (uiState.isProcessing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        uiState.processingStatus.ifEmpty { "Processing..." },
+                        fontSize = 14.sp,
+                        color = Color.White
+                    )
+                } else {
+                    Text("Continue", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                }
+            }
+
+            // Show error if inference failed
+            if (uiState.inferenceError != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFDE8E8),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = uiState.inferenceError ?: "",
+                        modifier = Modifier.padding(12.dp),
+                        fontSize = 13.sp,
+                        color = Color(0xFFD32F2F)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))

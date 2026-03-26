@@ -998,6 +998,18 @@ constructor(
       )
     }
 
+    if (model.localModelFilePathOverride.isNotEmpty()) {
+      val localFile = java.io.File(model.localModelFilePathOverride)
+      if (localFile.exists()) {
+        Log.d(TAG, "Model has localModelFilePathOverride set and file exists. Set status to SUCCEEDED")
+        return ModelDownloadStatus(
+          status = ModelDownloadStatusType.SUCCEEDED,
+          receivedBytes = localFile.length(),
+          totalBytes = localFile.length(),
+        )
+      }
+    }
+
     var status = ModelDownloadStatusType.NOT_DOWNLOADED
     var receivedBytes = 0L
     var totalBytes = 0L

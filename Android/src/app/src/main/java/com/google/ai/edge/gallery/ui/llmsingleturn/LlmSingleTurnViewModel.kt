@@ -26,7 +26,7 @@ import com.google.ai.edge.gallery.ui.common.chat.ChatMessageBenchmarkLlmResult
 import com.google.ai.edge.gallery.ui.common.chat.Stat
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.gallery.ui.llmchat.LlmModelInstance
-import com.google.ai.edge.litertlm.ExperimentalApi
+
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -114,9 +114,7 @@ class LlmSingleTurnViewModel @Inject constructor() : ViewModel() {
             setPreparing(false)
             firstTokenTs = System.currentTimeMillis()
             timeToFirstToken = (firstTokenTs - start) / 1000f
-            @OptIn(ExperimentalApi::class)
-            val prefillTokens = instance.conversation.getBenchmarkInfo().lastPrefillTokenCount
-            prefillSpeed = prefillTokens / timeToFirstToken
+            prefillSpeed = if (timeToFirstToken > 0) 1f / timeToFirstToken else 0f
             firstRun = false
           } else {
             decodeTokens++
@@ -224,8 +222,10 @@ class LlmSingleTurnViewModel @Inject constructor() : ViewModel() {
     Log.d(TAG, "Stopping response for model ${model.name}...")
     viewModelScope.launch(Dispatchers.Default) {
       setInProgress(false)
-      val instance = model.instance as LlmModelInstance
-      instance.conversation.cancelProcess()
+      val instance = model.instance as? LlmModelInstance
+      if (instance != null) {
+        com.google.ai.edge.gallery.llm.LlamaCpp.stopCompletion(instance.handle)
+      }
     }
   }
 

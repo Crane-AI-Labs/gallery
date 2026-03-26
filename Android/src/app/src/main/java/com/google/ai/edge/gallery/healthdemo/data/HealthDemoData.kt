@@ -43,7 +43,10 @@ data class HealthGuidance(
     val possibleCondition: String,
     val suggestedTreatment: List<String>,
     val recommendedNextSteps: List<String>,
-    val disclaimer: String = "This guidance does not replace clinical judgment."
+    val disclaimer: String = "This guidance does not replace clinical judgment.",
+    val triageLevel: String = "",
+    val confidence: String = "",
+    val redFlags: List<String> = emptyList(),
 )
 
 /**

@@ -1,6 +1,24 @@
 {
   "models": [
     {
+      "name": "MedGemma-4B-Q4",
+      "modelId": "google/medgemma-4b-gguf",
+      "modelFile": "medgemma-v5b-Q4_0.gguf",
+      "description": "MedGemma 4B (Q4_0 quantized, GGUF format) for on-device clinical triage. Optimized for health worker symptom assessment.",
+      "sizeInBytes": 2363511552,
+      "commitHash": "local",
+      "defaultConfig": {
+        "topK": 40,
+        "topP": 0.9,
+        "temperature": 0.7,
+        "maxTokens": 2048,
+        "accelerators": "cpu"
+      },
+      "taskTypes": ["llm_chat", "llm_prompt_lab"],
+      "bestForTaskTypes": ["llm_chat"],
+      "localModelFilePathOverride": "/data/local/tmp/medgemma-v5b-Q4_0.gguf"
+    },
+    {
       "name": "Gemma-3n-E2B-it",
       "modelId": "google/gemma-3n-E2B-it-litert-lm",
       "modelFile": "gemma-3n-E2B-it-int4.litertlm",
