@@ -16,6 +16,8 @@ object AppSettings {
     private const val KEY_LLM_MODEL_NAME = "llm_model_name"
     private const val KEY_ASR_MODEL_PATH = "asr_model_path"
     private const val KEY_ASR_MODEL_NAME = "asr_model_name"
+    private const val KEY_TOKENIZER_PATH = "tokenizer_path"
+    private const val KEY_TOKENIZER_NAME = "tokenizer_name"
     private const val KEY_ROLE = "user_role"
 
     private fun prefs(context: Context) =
@@ -48,6 +50,21 @@ object AppSettings {
         prefs(context).edit()
             .putString(KEY_ASR_MODEL_PATH, path)
             .putString(KEY_ASR_MODEL_NAME, name)
+            .apply()
+    }
+
+    // --- ASR Tokenizer ---
+
+    fun getTokenizerPath(context: Context): String? =
+        prefs(context).getString(KEY_TOKENIZER_PATH, null)
+
+    fun getTokenizerName(context: Context): String? =
+        prefs(context).getString(KEY_TOKENIZER_NAME, null)
+
+    fun saveTokenizer(context: Context, path: String, name: String) {
+        prefs(context).edit()
+            .putString(KEY_TOKENIZER_PATH, path)
+            .putString(KEY_TOKENIZER_NAME, name)
             .apply()
     }
 

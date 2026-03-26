@@ -159,6 +159,7 @@ class HealthDemoViewModel @Inject constructor(
 
             try {
                 MedAsrEngine.setModelPath(AppSettings.getAsrModelPath(appContext))
+                MedAsrEngine.setTokenizerPath(AppSettings.getTokenizerPath(appContext))
                 val transcript = MedAsrEngine.transcribe(pcmBytes)
                 if (transcript.isNotBlank()) {
                     _uiState.update { state ->

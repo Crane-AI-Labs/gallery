@@ -53,6 +53,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
     var llmModelName by remember { mutableStateOf(AppSettings.getLlmModelName(context)) }
     var asrModelName by remember { mutableStateOf(AppSettings.getAsrModelName(context)) }
+    var tokenizerName by remember { mutableStateOf(AppSettings.getTokenizerName(context)) }
     var selectedRole by remember { mutableStateOf(AppSettings.getRole(context)) }
     var isCopying by remember { mutableStateOf(false) }
     var copyingLabel by remember { mutableStateOf("") }
@@ -91,6 +92,26 @@ fun SettingsScreen(onBack: () -> Unit) {
                 if (path != null) {
                     AppSettings.saveAsrModel(context, path, fileName)
                     asrModelName = fileName
+                }
+                isCopying = false
+            }.start()
+        }
+    }
+
+    // Tokenizer picker
+    val tokenizerPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val fileName = AppSettings.getFileNameFromUri(context, uri)
+            if (!fileName.endsWith(".json", ignoreCase = true)) return@rememberLauncherForActivityResult
+            isCopying = true
+            copyingLabel = "Copying tokenizer..."
+            Thread {
+                val path = AppSettings.copyFileToAppStorage(context, uri, "asr_models", fileName)
+                if (path != null) {
+                    AppSettings.saveTokenizer(context, path, fileName)
+                    tokenizerName = fileName
                 }
                 isCopying = false
             }.start()
@@ -173,6 +194,27 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Text(
                     asrModelName ?: "Select .onnx model file",
                     color = if (asrModelName != null) Color(0xFF2E7D32) else Color(0xFF666666)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // --- ASR Tokenizer ---
+            Text("ASR Tokenizer (JSON)", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("The tokenizer file for the speech recognition model.", fontSize = 13.sp, color = Color(0xFF666666))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = { tokenizerPickerLauncher.launch("*/*") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    tokenizerName ?: "Select tokenizer.json file",
+                    color = if (tokenizerName != null) Color(0xFF2E7D32) else Color(0xFF666666)
                 )
             }
 

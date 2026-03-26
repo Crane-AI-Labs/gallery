@@ -40,17 +40,26 @@ object MedAsrEngine {
     private var melFilterbank: Array<FloatArray>? = null
 
     private var modelPath: String = DEFAULT_MODEL_PATH
+    private var tokenizerPath: String = TOKENIZER_PATH
 
     fun isAvailable(): Boolean {
-        return File(modelPath).exists() && File(TOKENIZER_PATH).exists()
+        return File(modelPath).exists() && File(tokenizerPath).exists()
     }
 
     fun setModelPath(path: String?) {
-        modelPath = path ?: DEFAULT_MODEL_PATH
-        // If path changed while loaded, force reload next time
-        if (session != null && modelPath != path) {
+        val newPath = path ?: DEFAULT_MODEL_PATH
+        if (session != null && modelPath != newPath) {
             release()
         }
+        modelPath = newPath
+    }
+
+    fun setTokenizerPath(path: String?) {
+        val newPath = path ?: TOKENIZER_PATH
+        if (vocabulary.isNotEmpty() && tokenizerPath != newPath) {
+            vocabulary = emptyList()
+        }
+        tokenizerPath = newPath
     }
 
     /**
@@ -122,7 +131,7 @@ object MedAsrEngine {
     }
 
     private fun loadVocabulary() {
-        val json = JSONObject(File(TOKENIZER_PATH).readText())
+        val json = JSONObject(File(tokenizerPath).readText())
         val model = json.getJSONObject("model")
         val vocab = model.getJSONArray("vocab")
         val tokens = mutableListOf<String>()
