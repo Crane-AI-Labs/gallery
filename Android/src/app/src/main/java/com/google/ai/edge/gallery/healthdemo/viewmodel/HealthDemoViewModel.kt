@@ -22,13 +22,16 @@ import com.google.ai.edge.gallery.llm.TokenCallback
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import android.content.Context
+import com.google.ai.edge.gallery.healthdemo.ui.screens.ModelPreferences
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val TAG = "HealthDemoViewModel"
-private const val MODEL_PATH = "/data/local/tmp/medgemma-v5b-Q4_0.gguf"
+private const val DEFAULT_MODEL_PATH = "/data/local/tmp/medgemma-v5b-Q4_0.gguf"
 private const val MMPROJ_PATH = "/data/local/tmp/medgemma-mmproj-Q8_0.gguf"
 private const val N_CTX = 2048
 private const val N_GPU_LAYERS = 0
@@ -62,7 +65,9 @@ data class HealthDemoUiState(
 )
 
 @HiltViewModel
-class HealthDemoViewModel @Inject constructor() : ViewModel() {
+class HealthDemoViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HealthDemoUiState())
     val uiState = _uiState.asStateFlow()
@@ -215,14 +220,15 @@ class HealthDemoViewModel @Inject constructor() : ViewModel() {
         // Load model if not already loaded
         if (modelHandle == 0L) {
             setStatus("Loading AI model...")
-            Log.d(TAG, "Loading MedGemma model from $MODEL_PATH")
+            val modelPath = ModelPreferences.getModelPath(appContext) ?: DEFAULT_MODEL_PATH
+            Log.d(TAG, "Loading model from $modelPath")
 
-            val file = java.io.File(MODEL_PATH)
+            val file = java.io.File(modelPath)
             if (!file.exists()) {
-                throw IllegalStateException("Model file not found at $MODEL_PATH")
+                throw IllegalStateException("Model file not found at $modelPath. Please select a model in Settings.")
             }
 
-            modelHandle = LlamaCpp.initModel(MODEL_PATH, N_CTX, N_GPU_LAYERS)
+            modelHandle = LlamaCpp.initModel(modelPath, N_CTX, N_GPU_LAYERS)
 
             if (modelHandle == 0L) {
                 throw IllegalStateException("Failed to load model")

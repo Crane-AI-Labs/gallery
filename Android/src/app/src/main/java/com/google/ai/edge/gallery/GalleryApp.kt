@@ -22,8 +22,10 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.google.ai.edge.gallery.healthdemo.ui.navigation.HealthDemoNavGraph
 import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
+import com.google.ai.edge.gallery.proto.Theme
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.navigation.GalleryNavHost
+import com.google.ai.edge.gallery.ui.theme.ThemeSettings
 
 /** Top level composable representing the main screen of the application. */
 @Composable
@@ -36,6 +38,8 @@ fun GalleryApp(
   val isDemoMode = true
 
   if (isDemoMode) {
+    // Force light theme for health demo UI
+    ThemeSettings.themeOverride.value = Theme.THEME_LIGHT
     val healthDemoViewModel: HealthDemoViewModel = hiltViewModel()
     HealthDemoNavGraph(viewModel = healthDemoViewModel)
   } else {
