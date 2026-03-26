@@ -18,7 +18,7 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 private const val TAG = "MedAsrEngine"
-private const val MODEL_PATH = "/data/local/tmp/medasr-fp32.onnx"
+private const val DEFAULT_MODEL_PATH = "/data/local/tmp/medasr-fp32.onnx"
 private const val TOKENIZER_PATH = "/data/local/tmp/medasr-tokenizer.json"
 
 // From processor_config.json
@@ -39,8 +39,18 @@ object MedAsrEngine {
     private var vocabulary: List<String> = emptyList()
     private var melFilterbank: Array<FloatArray>? = null
 
+    private var modelPath: String = DEFAULT_MODEL_PATH
+
     fun isAvailable(): Boolean {
-        return File(MODEL_PATH).exists() && File(TOKENIZER_PATH).exists()
+        return File(modelPath).exists() && File(TOKENIZER_PATH).exists()
+    }
+
+    fun setModelPath(path: String?) {
+        modelPath = path ?: DEFAULT_MODEL_PATH
+        // If path changed while loaded, force reload next time
+        if (session != null && modelPath != path) {
+            release()
+        }
     }
 
     /**
@@ -95,12 +105,12 @@ object MedAsrEngine {
     private fun ensureLoaded() {
         if (session != null) return
 
-        Log.d(TAG, "Loading MedASR model...")
+        Log.d(TAG, "Loading MedASR model from $modelPath")
         ortEnv = OrtEnvironment.getEnvironment()
         val opts = OrtSession.SessionOptions().apply {
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
         }
-        session = ortEnv!!.createSession(MODEL_PATH, opts)
+        session = ortEnv!!.createSession(modelPath, opts)
         Log.d(TAG, "MedASR model loaded")
 
         // Load vocabulary from tokenizer.json

@@ -2,13 +2,16 @@ package com.google.ai.edge.gallery.healthdemo.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.google.ai.edge.gallery.healthdemo.data.AppSettings
 import com.google.ai.edge.gallery.healthdemo.data.HealthDemoRepository
+import com.google.ai.edge.gallery.healthdemo.data.PatientRole
 import com.google.ai.edge.gallery.healthdemo.ui.screens.AssessmentDetailsScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.EnterSymptomsScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.FeedbackScreen
@@ -16,10 +19,12 @@ import com.google.ai.edge.gallery.healthdemo.ui.screens.GuidanceScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.HealthDemoLandingScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.SavedRecordsScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.SelectRoleScreen
+import com.google.ai.edge.gallery.healthdemo.ui.screens.SettingsScreen
 import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
 
 object HealthDemoDestinations {
     const val LANDING = "health_demo_landing"
+    const val SETTINGS = "health_demo_settings"
     const val SELECT_ROLE = "health_demo_select_role"
     const val PATIENT_ASSESSMENT = "health_demo_patient_assessment"
     const val GUIDANCE = "health_demo_guidance"
@@ -36,6 +41,19 @@ fun HealthDemoNavGraph(
     repository: HealthDemoRepository = remember { HealthDemoRepository() },
     viewModel: HealthDemoViewModel
 ) {
+    val context = LocalContext.current
+
+    // Restore saved role into ViewModel on first composition
+    val savedRole = remember {
+        val roleName = AppSettings.getRole(context)
+        if (roleName != null) {
+            PatientRole.entries.find { it.label == roleName }
+        } else null
+    }
+    if (savedRole != null && viewModel.uiState.value.role == null) {
+        viewModel.setRole(savedRole)
+    }
+
     NavHost(
         navController = navController,
         startDestination = HealthDemoDestinations.LANDING
@@ -44,13 +62,23 @@ fun HealthDemoNavGraph(
         composable(HealthDemoDestinations.LANDING) {
             HealthDemoLandingScreen(
                 onStartAssessment = {
-                    // Skip role selection if role was already set
+                    // Skip role selection if role is already set (from settings or previous selection)
                     if (viewModel.uiState.value.role != null) {
                         navController.navigate(HealthDemoDestinations.PATIENT_ASSESSMENT)
                     } else {
                         navController.navigate(HealthDemoDestinations.SELECT_ROLE)
                     }
+                },
+                onSettings = {
+                    navController.navigate(HealthDemoDestinations.SETTINGS)
                 }
+            )
+        }
+
+        // Settings
+        composable(HealthDemoDestinations.SETTINGS) {
+            SettingsScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -59,6 +87,11 @@ fun HealthDemoNavGraph(
             SelectRoleScreen(
                 viewModel = viewModel,
                 onContinue = {
+                    // Save role to persistent settings
+                    val role = viewModel.uiState.value.role
+                    if (role != null) {
+                        AppSettings.saveRole(context, role.label)
+                    }
                     navController.navigate(HealthDemoDestinations.PATIENT_ASSESSMENT)
                 }
             )

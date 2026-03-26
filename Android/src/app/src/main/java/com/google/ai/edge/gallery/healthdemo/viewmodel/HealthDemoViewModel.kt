@@ -23,7 +23,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import android.content.Context
-import com.google.ai.edge.gallery.healthdemo.ui.screens.ModelPreferences
+import com.google.ai.edge.gallery.healthdemo.data.AppSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -158,6 +158,7 @@ class HealthDemoViewModel @Inject constructor(
             Log.d(TAG, "Transcribing ${pcmBytes.size} bytes of audio")
 
             try {
+                MedAsrEngine.setModelPath(AppSettings.getAsrModelPath(appContext))
                 val transcript = MedAsrEngine.transcribe(pcmBytes)
                 if (transcript.isNotBlank()) {
                     _uiState.update { state ->
@@ -220,7 +221,7 @@ class HealthDemoViewModel @Inject constructor(
         // Load model if not already loaded
         if (modelHandle == 0L) {
             setStatus("Loading AI model...")
-            val modelPath = ModelPreferences.getModelPath(appContext) ?: DEFAULT_MODEL_PATH
+            val modelPath = AppSettings.getLlmModelPath(appContext) ?: DEFAULT_MODEL_PATH
             Log.d(TAG, "Loading model from $modelPath")
 
             val file = java.io.File(modelPath)
