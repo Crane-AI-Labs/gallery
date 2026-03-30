@@ -16,8 +16,7 @@
 
 plugins {
   alias(libs.plugins.android.application)
-  // Note: set apply to true to enable google-services (requires google-services.json).
-  alias(libs.plugins.google.services) apply false
+  alias(libs.plugins.google.services)
   alias(libs.plugins.kotlin.android)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.kotlin.serialization)
@@ -52,12 +51,13 @@ android {
     }
   }
 
-  externalNativeBuild {
-    cmake {
-      path = file("src/main/cpp/CMakeLists.txt")
-      version = "3.22.1"
-    }
-  }
+  // Disabled: requires llama.rn source not available on this machine
+  // externalNativeBuild {
+  //   cmake {
+  //     path = file("src/main/cpp/CMakeLists.txt")
+  //     version = "3.22.1"
+  //   }
+  // }
 
   buildTypes {
     release {
@@ -114,6 +114,7 @@ dependencies {
   implementation(libs.play.services.oss.licenses)
   implementation(platform(libs.firebase.bom))
   implementation(libs.firebase.analytics)
+  implementation(libs.firebase.perf)
   implementation(libs.androidx.exifinterface)
   kapt(libs.hilt.android.compiler)
   testImplementation(libs.junit)

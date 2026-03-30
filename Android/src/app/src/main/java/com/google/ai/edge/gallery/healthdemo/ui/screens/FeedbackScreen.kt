@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.ai.edge.gallery.analytics.HealthDemoAnalytics
 
 private val NavyBlue = Color(0xFF0D1B5E)
 
@@ -192,7 +193,12 @@ fun FeedbackScreen(
         // Bottom buttons
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
             Button(
-                onClick = onSubmit,
+                onClick = {
+                    HealthDemoAnalytics.logFeedbackSubmitted(
+                        rating = "$starRating stars"
+                    )
+                    onSubmit()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),

@@ -30,6 +30,9 @@
 .cxx
 local.properties
 
-# Gradle build caches and daemon state (binary, machine-specific — never commit)
+# Gradle build/cache artifacts (binary, machine-specific — never commit)
 gradle/caches/
 gradle/daemon/
+gradle/wrapper/dists/
+gradle/android/
+gradle/native/

@@ -17,9 +17,15 @@
 package com.google.ai.edge.gallery
 
 import android.app.Application
+import android.os.Build
+import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.ui.theme.ThemeSettings
+import com.google.ai.edge.gallery.analytics.AnalyticsSyncWorker
+import com.google.ai.edge.gallery.analytics.BatteryAnalytics
+import com.google.ai.edge.gallery.analytics.ConnectivitySyncScheduler
 import com.google.firebase.FirebaseApp
+import com.google.firebase.analytics.FirebaseAnalytics
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -35,5 +41,32 @@ class GalleryApplication : Application() {
     ThemeSettings.themeOverride.value = dataStoreRepository.readTheme()
 
     FirebaseApp.initializeApp(this)
+
+    // On emulators, reduce Firebase's upload interval so events show up faster
+    if (isEmulator()) {
+      Log.d(TAG, "Emulator detected — setting Firebase analytics to minimal dispatch interval")
+      FirebaseAnalytics.getInstance(this).setAnalyticsCollectionEnabled(true)
+    }
+
+    // Log initial battery level
+    BatteryAnalytics.logBatteryEvent(this, trigger = "app_launch")
+
+    // Schedule periodic fallback sync + listen for connectivity to flush immediately
+    AnalyticsSyncWorker.schedulePeriodic(this)
+    ConnectivitySyncScheduler.register(this)
+  }
+
+  private fun isEmulator(): Boolean {
+    return (Build.FINGERPRINT.contains("generic")
+        || Build.FINGERPRINT.contains("emulator")
+        || Build.MODEL.contains("Emulator")
+        || Build.MODEL.contains("Android SDK built for")
+        || Build.MANUFACTURER.contains("Genymotion")
+        || Build.PRODUCT.contains("sdk")
+        || Build.PRODUCT.contains("emulator"))
+  }
+
+  companion object {
+    private const val TAG = "GalleryApplication"
   }
 }

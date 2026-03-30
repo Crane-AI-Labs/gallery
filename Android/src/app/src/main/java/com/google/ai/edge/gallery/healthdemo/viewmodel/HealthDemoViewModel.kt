@@ -23,6 +23,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import android.content.Context
+import com.google.ai.edge.gallery.analytics.HealthDemoAnalytics
 import com.google.ai.edge.gallery.healthdemo.data.AppSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.asStateFlow
@@ -79,6 +80,7 @@ class HealthDemoViewModel @Inject constructor(
 
     fun setRole(role: PatientRole) {
         _uiState.update { it.copy(role = role, customRole = "") }
+        HealthDemoAnalytics.logRoleSelected(role.name)
     }
 
     fun setCustomRole(text: String) {
@@ -99,11 +101,13 @@ class HealthDemoViewModel @Inject constructor(
 
     fun setCapturedImage(imageBytes: ByteArray?) {
         _uiState.update { it.copy(capturedImageBytes = imageBytes) }
+        if (imageBytes != null) HealthDemoAnalytics.logImageCaptured()
     }
 
     private var recordedBytes = java.io.ByteArrayOutputStream()
 
     fun startVoiceRecording() {
+        HealthDemoAnalytics.logVoiceNoteUsed()
         startRecordingInternal()
     }
 
@@ -194,12 +198,20 @@ class HealthDemoViewModel @Inject constructor(
         val state = _uiState.value
         _uiState.update { it.copy(isProcessing = true, inferenceError = null) }
 
+        HealthDemoAnalytics.logAssessmentStarted(appContext)
+
         viewModelScope.launch(Dispatchers.IO) {
+            val startMs = System.currentTimeMillis()
             try {
                 val guidance = runMedGemmaInference(state)
+                val durationMs = System.currentTimeMillis() - startMs
+                HealthDemoAnalytics.logInferenceCompleted(
+                    appContext, durationMs, hasImage = state.capturedImageBytes != null
+                )
                 _uiState.update { it.copy(guidance = guidance, savedAssessment = null, isProcessing = false) }
             } catch (e: Exception) {
                 Log.e(TAG, "MedGemma inference failed", e)
+                HealthDemoAnalytics.logInferenceFailed(e.message ?: "unknown")
                 _uiState.update {
                     it.copy(
                         isProcessing = false,
@@ -353,6 +365,7 @@ class HealthDemoViewModel @Inject constructor(
 
     fun markSaved(assessment: SavedAssessment) {
         _uiState.update { it.copy(savedAssessment = assessment) }
+        HealthDemoAnalytics.logAssessmentSaved()
     }
 
     fun resetAssessment() {
