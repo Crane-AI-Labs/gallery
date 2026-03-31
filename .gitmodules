@@ -1,0 +1,3 @@
+[submodule "Android/src/app/src/main/cpp/llama-rn-turbo-quant"]
+	path = Android/src/app/src/main/cpp/llama-rn-turbo-quant
+	url = https://github.com/BakungaBronson/llama-rn-turbo-quant.git

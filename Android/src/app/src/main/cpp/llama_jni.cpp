@@ -40,16 +40,29 @@ static void rebuild_sampler(inference_context * inf_ctx, float temperature, int 
 
 extern "C" {
 
+// Map integer KV cache type codes to ggml types
+// 0=f16 (default), 1=q8_0, 2=q4_0, 3=turbo3, 4=turbo4
+static enum lm_ggml_type kv_type_from_code(int code) {
+    switch (code) {
+        case 1:  return LM_GGML_TYPE_Q8_0;
+        case 2:  return LM_GGML_TYPE_Q4_0;
+        case 3:  return LM_GGML_TYPE_TURBO3_0;
+        case 4:  return LM_GGML_TYPE_TURBO4_0;
+        default: return LM_GGML_TYPE_F16;
+    }
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitModel(
     JNIEnv *env,
     jobject /* this */,
     jstring modelPath,
     jint nCtx,
-    jint nGpuLayers
+    jint nGpuLayers,
+    jint kvCacheType
 ) {
     const char *path = env->GetStringUTFChars(modelPath, nullptr);
-    LOGI("initModel: %s, nCtx=%d, nGpuLayers=%d", path, nCtx, nGpuLayers);
+    LOGI("initModel: %s, nCtx=%d, nGpuLayers=%d, kvCacheType=%d", path, nCtx, nGpuLayers, kvCacheType);
 
     llama_backend_init();
 
@@ -68,6 +81,12 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitModel(
     ctx_params.n_ctx = nCtx;
     ctx_params.n_batch = 512;
     ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+
+    // TurboQuant KV cache compression (arXiv 2504.19874)
+    enum lm_ggml_type kv_type = kv_type_from_code(kvCacheType);
+    ctx_params.type_k = kv_type;
+    ctx_params.type_v = kv_type;
+    LOGI("KV cache type: %d (ggml type %d)", kvCacheType, (int)kv_type);
 
     llama_context * ctx = llama_init_from_model(model, ctx_params);
     if (!ctx) {

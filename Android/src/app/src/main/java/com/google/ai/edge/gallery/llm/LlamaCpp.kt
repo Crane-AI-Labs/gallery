@@ -81,9 +81,17 @@ object LlamaCpp {
 
     fun isAvailable(): Boolean = nativeLoaded
 
-    fun initModel(modelPath: String, nCtx: Int, nGpuLayers: Int): Long {
+    /**
+     * KV cache type codes:
+     * 0 = f16 (default, no compression)
+     * 1 = q8_0 (50% memory savings)
+     * 2 = q4_0 (75% memory savings)
+     * 3 = turbo3 (81% savings, TurboQuant arXiv 2504.19874)
+     * 4 = turbo4 (75% savings, TurboQuant)
+     */
+    fun initModel(modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int = 2): Long {
         if (!nativeLoaded) return 0L
-        return nativeInitModel(modelPath, nCtx, nGpuLayers)
+        return nativeInitModel(modelPath, nCtx, nGpuLayers, kvCacheType)
     }
 
     fun completion(
@@ -127,7 +135,7 @@ object LlamaCpp {
         return nativeCompletionWithImage(handle, prompt, imageData, nPredict, temperature, topK, topP, callback)
     }
 
-    private external fun nativeInitModel(modelPath: String, nCtx: Int, nGpuLayers: Int): Long
+    private external fun nativeInitModel(modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int): Long
     private external fun nativeCompletion(
         handle: Long, prompt: String, nPredict: Int,
         temperature: Float, topK: Int, topP: Float,
