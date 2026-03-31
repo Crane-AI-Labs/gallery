@@ -116,6 +116,24 @@ object LlamaCpp {
         if (nativeLoaded) nativeReleaseModel(handle)
     }
 
+    /**
+     * Explicitly clear the KV cache. Call this when starting a NEW conversation,
+     * not between turns of the same conversation. Between turns the cache is
+     * reused so the system prompt and prior history don't need re-processing.
+     */
+    fun clearContext(handle: Long) {
+        if (nativeLoaded) nativeClearContext(handle)
+    }
+
+    /**
+     * Returns the number of tokens currently in the KV cache.
+     * Useful for monitoring cache utilization relative to n_ctx.
+     */
+    fun getCacheTokenCount(handle: Long): Int {
+        if (!nativeLoaded) return 0
+        return nativeGetCacheTokenCount(handle)
+    }
+
     fun initVision(handle: Long, mmprojPath: String): Boolean {
         if (!nativeLoaded) return false
         return nativeInitVision(handle, mmprojPath)
@@ -142,6 +160,8 @@ object LlamaCpp {
         stopSequences: String, callback: TokenCallback
     ): String
     private external fun nativeStopCompletion(handle: Long)
+    private external fun nativeClearContext(handle: Long)
+    private external fun nativeGetCacheTokenCount(handle: Long): Int
     private external fun nativeReleaseModel(handle: Long)
     private external fun nativeInitVision(handle: Long, mmprojPath: String): Boolean
     private external fun nativeCompletionWithImage(

@@ -40,20 +40,19 @@ class GalleryApplication : Application() {
     // Load saved theme.
     ThemeSettings.themeOverride.value = dataStoreRepository.readTheme()
 
-    FirebaseApp.initializeApp(this)
-
-    // On emulators, reduce Firebase's upload interval so events show up faster
-    if (isEmulator()) {
-      Log.d(TAG, "Emulator detected — setting Firebase analytics to minimal dispatch interval")
-      FirebaseAnalytics.getInstance(this).setAnalyticsCollectionEnabled(true)
+    // Firebase disabled — no valid google-services.json
+    try {
+      FirebaseApp.initializeApp(this)
+      if (isEmulator()) {
+        Log.d(TAG, "Emulator detected — setting Firebase analytics to minimal dispatch interval")
+        FirebaseAnalytics.getInstance(this).setAnalyticsCollectionEnabled(true)
+      }
+      BatteryAnalytics.logBatteryEvent(this, trigger = "app_launch")
+      AnalyticsSyncWorker.schedulePeriodic(this)
+      ConnectivitySyncScheduler.register(this)
+    } catch (e: Exception) {
+      Log.w(TAG, "Firebase init skipped (no valid config): ${e.message}")
     }
-
-    // Log initial battery level
-    BatteryAnalytics.logBatteryEvent(this, trigger = "app_launch")
-
-    // Schedule periodic fallback sync + listen for connectivity to flush immediately
-    AnalyticsSyncWorker.schedulePeriodic(this)
-    ConnectivitySyncScheduler.register(this)
   }
 
   private fun isEmulator(): Boolean {
