@@ -81,7 +81,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitModel(
 
     auto ctx_params = llama_context_default_params();
     ctx_params.n_ctx = nCtx;
-    ctx_params.n_batch = 512;
+    ctx_params.n_batch = 2048;
     ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
 
     // TurboQuant KV cache compression (arXiv 2504.19874)
@@ -202,7 +202,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
     LOGI("Prompt: %d tokens, cached: %d reused, %d new to process", n_tokens, n_keep, n_new);
 
     // Evaluate only the NEW tokens (skip the common prefix already in KV cache)
-    const int n_batch = 512;
+    const int n_batch = 2048;
     for (int i = n_keep; i < n_tokens; i += n_batch) {
         int n_eval = std::min(n_batch, n_tokens - i);
         llama_batch batch = llama_batch_get_one(tokens.data() + i, n_eval);
