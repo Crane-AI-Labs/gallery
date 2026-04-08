@@ -73,7 +73,7 @@ object AppSettings {
     fun getRole(context: Context): String? =
         prefs(context).getString(KEY_ROLE, null)
 
-    fun saveRole(context: Context, role: String) {
+    fun saveRole(context: Context, role: String?) {
         prefs(context).edit()
             .putString(KEY_ROLE, role)
             .apply()

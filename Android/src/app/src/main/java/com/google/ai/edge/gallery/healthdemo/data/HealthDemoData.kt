@@ -3,13 +3,80 @@ package com.google.ai.edge.gallery.healthdemo.data
 import java.util.UUID
 
 enum class PatientRole(val label: String) {
-    MedicalOfficer("Medical Officer"),
+    Doctor("Doctor"),
     Nurse("Nurse"),
+    MedicalOfficer("Medical Officer"),
     Midwife("Midwife"),
-    ClinicalAssistant("Clinical Assistant"),
-    CommunityHealthWorker("Community Health Worker"),
     Other("Other")
 }
+
+enum class DurationUnit(val label: String) {
+    Hours("Hours"),
+    Days("Days")
+}
+
+// ─── Signs & Symptoms ─────────────────────────────────────────────────────────
+
+val CRITICAL_DANGER_SIGNS = listOf(
+    "Unable to drink/breastfeed",
+    "Convulsions",
+    "Lethargic/unconscious",
+    "Severe respiratory distress",
+    "Cardiac cyanosis"
+)
+
+val WARNING_SIGNS = listOf(
+    "Chest indrawing",
+    "Poor skin turgor",
+    "Sunken eyes",
+    "Reduced feeding / poor appetite",
+    "Prolonged capillary refill"
+)
+
+data class SignInfo(val description: String, val actionHint: String)
+
+val SIGN_INFO: Map<String, SignInfo> = mapOf(
+    "Unable to drink/breastfeed" to SignInfo(
+        "Child cannot swallow or breastfeed — indicates severe illness",
+        "Ensure IV access, prepare fluid resuscitation"
+    ),
+    "Convulsions" to SignInfo(
+        "Seizure activity — high risk of airway compromise or brain injury",
+        "Position patient safely, protect airway, prepare emergency medication"
+    ),
+    "Lethargic/unconscious" to SignInfo(
+        "Abnormal conscious level — potential CNS involvement",
+        "Assess AVPU scale, protect airway, urgent escalation required"
+    ),
+    "Severe respiratory distress" to SignInfo(
+        "Laboured breathing — risk of hypoxia and respiratory failure",
+        "Administer oxygen if available, position upright, escalate urgently"
+    ),
+    "Cardiac cyanosis" to SignInfo(
+        "Central cyanosis — inadequate oxygenation of blood",
+        "Administer high-flow oxygen, prepare for emergency transfer"
+    ),
+    "Chest indrawing" to SignInfo(
+        "Subcostal or intercostal recession — indicates respiratory difficulty",
+        "Monitor closely, consider pneumonia or asthma management"
+    ),
+    "Poor skin turgor" to SignInfo(
+        "Reduced skin elasticity — consistent with dehydration",
+        "Assess dehydration severity, initiate oral or IV rehydration"
+    ),
+    "Sunken eyes" to SignInfo(
+        "Periorbital recession — consistent with moderate dehydration",
+        "Initiate oral rehydration therapy, monitor fluid intake and output"
+    ),
+    "Reduced feeding / poor appetite" to SignInfo(
+        "Reduced oral intake — may indicate systemic illness",
+        "Assess feeding history, monitor weight, consider nutritional support"
+    ),
+    "Prolonged capillary refill" to SignInfo(
+        "Capillary refill > 3 seconds — may indicate poor perfusion",
+        "Assess circulation, consider IV fluid challenge if indicated"
+    )
+)
 
 enum class AgeRange(val label: String) {
     Under1("Under 1 Year"),
@@ -66,9 +133,13 @@ data class PausedConsultation(
     val role: PatientRole,
     val customRole: String = "",
     val symptoms: String,
+    val durationValue: String = "",
+    val durationUnit: DurationUnit = DurationUnit.Days,
     val age: AgeRange? = null,
     val sex: Sex? = null,
     val vitalSigns: VitalSigns = VitalSigns(),
+    val checkedSigns: Set<String> = emptySet(),
+    val confirmedSigns: Set<String> = emptySet(),
     val pauseReason: PauseReason? = null,
     val note: String = ""
 )
@@ -149,9 +220,12 @@ data class SavedAssessment(
     val role: PatientRole,
     val customRole: String = "",
     val symptoms: String,
+    val durationValue: String = "",
+    val durationUnit: DurationUnit = DurationUnit.Days,
     val age: AgeRange?,
     val sex: Sex?,
     val vitalSigns: VitalSigns = VitalSigns(),
+    val confirmedSigns: Set<String> = emptySet(),
     val guidance: HealthGuidance,
     val clinicianConfirmation: ClinicianConfirmation? = null,
     val referralInfo: ReferralInfo? = null

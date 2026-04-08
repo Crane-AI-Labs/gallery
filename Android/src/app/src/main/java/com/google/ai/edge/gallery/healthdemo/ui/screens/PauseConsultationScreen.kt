@@ -3,27 +3,28 @@ package com.google.ai.edge.gallery.healthdemo.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -39,92 +40,109 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.ai.edge.gallery.healthdemo.data.PatientRole
 import com.google.ai.edge.gallery.healthdemo.data.PauseReason
 import com.google.ai.edge.gallery.healthdemo.data.PausedConsultation
 import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
 
-private val NavyBlue = Color(0xFF0D1B5E)
 private val OrangeGold = Color(0xFFE6A817)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PauseConsultationScreen(
+fun PauseConsultationSheet(
     viewModel: HealthDemoViewModel,
     onSaveAndStartNew: (PausedConsultation) -> Unit,
-    onContinue: () -> Unit
+    onContinue: () -> Unit,
+    onDismiss: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var selectedReason by remember { mutableStateOf<PauseReason?>(null) }
     var note by remember { mutableStateOf("") }
 
+    val displayRole = if (uiState.role == PatientRole.Other && uiState.customRole.isNotBlank())
+        uiState.customRole else uiState.role?.label ?: "Clinician"
+
     Column(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
             .background(Color.White)
-            .statusBarsPadding()
             .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
     ) {
-        Column(
+        // Header
+        Row(
             modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFFF3E0)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Pause,
-                        contentDescription = null,
-                        tint = OrangeGold,
-                        modifier = Modifier.padding(8.dp).size(22.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.size(12.dp))
-                Column {
-                    Text("Pause Consultation", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
-                    Text("Save progress and return to this patient later", fontSize = 13.sp, color = Color(0xFF444746))
-                }
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(Color(0xFFFFF3E0), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Pause, contentDescription = null, tint = OrangeGold, modifier = Modifier.size(20.dp))
             }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Pause Consultation", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                Text("Save progress and return to this patient later", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+            }
+            IconButton(onClick = onDismiss) {
+                Text("✕", fontSize = 18.sp, color = Color(0xFF9E9E9E))
+            }
+        }
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Current symptoms summary
+        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+            // Info card: symptoms + clinician
             Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFFF5F5F5),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFFF9F9F9),
+                modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(10.dp))
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
-                    Text("Current Symptoms", fontSize = 12.sp, color = Color(0xFF444746))
-                    Text(
-                        text = uiState.symptoms.ifBlank { "No symptoms entered" },
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF1F1F1F)
-                    )
-                    if (uiState.role != null) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("Clinician: ${uiState.role!!.label}", fontSize = 12.sp, color = Color(0xFF444746))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Pause, contentDescription = null, tint = Color(0xFF9E9E9E), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Symptoms recorded", fontSize = 12.sp, color = Color(0xFF9E9E9E))
+                            Text(
+                                uiState.symptoms.ifBlank { "No symptoms entered" },
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF1F1F1F)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF9E9E9E), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Clinician", fontSize = 12.sp, color = Color(0xFF9E9E9E))
+                            Text(displayRole, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1F1F1F))
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            Text("Reason for Pause", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
-            Text("(Optional)", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+            // Reason chips
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Reason for pause", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("(Optional)", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+            }
             Spacer(modifier = Modifier.height(10.dp))
 
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
             ) {
                 PauseReason.entries.forEach { reason ->
                     val selected = selectedReason == reason
@@ -136,10 +154,11 @@ fun PauseConsultationScreen(
                             .clickable { selectedReason = if (selected) null else reason }
                     ) {
                         Text(
-                            text = reason.label,
+                            reason.label,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                             fontSize = 13.sp,
-                            color = if (selected) Color.White else Color(0xFF1F1F1F)
+                            color = if (selected) Color.White else Color(0xFF1F1F1F),
+                            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal
                         )
                     }
                 }
@@ -147,43 +166,35 @@ fun PauseConsultationScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            Text("Add a Note", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
-            Text("(Optional)", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+            // Note field
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Add a note", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("(Optional)", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+            }
             Spacer(modifier = Modifier.height(8.dp))
-
             OutlinedTextField(
                 value = note,
-                onValueChange = { note = it },
-                placeholder = { Text("e.g. Bed 3, Paediatric ward...", color = Color(0xFF9E9E9E)) },
-                modifier = Modifier.fillMaxWidth().height(100.dp),
+                onValueChange = { if (it.length <= 200) note = it },
+                placeholder = { Text("e.g. Bed 3, Paediatric ward...", color = Color(0xFF9E9E9E), fontSize = 13.sp) },
+                modifier = Modifier.fillMaxWidth().height(90.dp),
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NavyBlue,
+                    focusedBorderColor = OrangeGold,
                     unfocusedBorderColor = Color(0xFFE0E0E0),
                     focusedTextColor = Color.Black,
                     unfocusedTextColor = Color.Black
                 )
             )
+            Text(
+                "No patient-identifying information. Stored locally only.",
+                fontSize = 11.sp,
+                color = Color(0xFF9E9E9E),
+                modifier = Modifier.padding(top = 4.dp)
+            )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFFF0F1FA),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "No patient-identifying information. Stored locally only.",
-                    modifier = Modifier.padding(12.dp),
-                    fontSize = 12.sp,
-                    color = NavyBlue
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-
-        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
             Button(
                 onClick = {
                     val paused = viewModel.buildPausedConsultation(selectedReason, note)
@@ -196,14 +207,21 @@ fun PauseConsultationScreen(
                 Text("Save & Start New Patient", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White)
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             TextButton(
                 onClick = onContinue,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Continue this consultation", color = NavyBlue, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    "Continue this consultation",
+                    fontSize = 14.sp,
+                    color = Color(0xFF444746),
+                    textAlign = TextAlign.Center
+                )
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }

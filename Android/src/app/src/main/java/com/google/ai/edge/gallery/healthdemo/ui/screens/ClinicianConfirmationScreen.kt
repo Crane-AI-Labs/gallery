@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -26,13 +27,17 @@ import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,19 +48,30 @@ import androidx.compose.ui.unit.sp
 import com.google.ai.edge.gallery.healthdemo.data.ClinicianConfirmation
 import com.google.ai.edge.gallery.healthdemo.data.FinalAction
 import com.google.ai.edge.gallery.healthdemo.data.GuidanceUsed
+import com.google.ai.edge.gallery.healthdemo.data.HealthDemoRepository
 import com.google.ai.edge.gallery.healthdemo.data.IssueTag
+import com.google.ai.edge.gallery.healthdemo.data.ReferralInfo
+import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
+import kotlinx.coroutines.launch
 
 private val NavyBlue = Color(0xFF0D1B5E)
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ClinicianConfirmationScreen(
-    onSave: (ClinicianConfirmation) -> Unit
+    viewModel: HealthDemoViewModel,
+    repository: HealthDemoRepository,
+    onCaseSaved: (String) -> Unit
 ) {
     var understood by remember { mutableStateOf(false) }
     var guidanceUsed by remember { mutableStateOf<GuidanceUsed?>(null) }
     var finalAction by remember { mutableStateOf<FinalAction?>(null) }
     var selectedTags by remember { mutableStateOf<Set<IssueTag>>(emptySet()) }
+    var showReferralSheet by remember { mutableStateOf(false) }
+    var pendingConfirmation by remember { mutableStateOf<ClinicianConfirmation?>(null) }
+
+    val referralSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
 
     val canSave = understood && finalAction != null
 
@@ -74,10 +90,15 @@ fun ClinicianConfirmationScreen(
         ) {
             Spacer(modifier = Modifier.height(24.dp))
 
-            Text("Confirm Outcome", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
-            Text("Record how this guidance was used", fontSize = 14.sp, color = Color(0xFF444746))
+            Text("Clinician Confirmation", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+            Text(
+                "Complete all required fields, optional ones will have the word \"optional\" next to them.",
+                fontSize = 13.sp,
+                color = Color(0xFF444746),
+                lineHeight = 18.sp
+            )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Disclaimer checkbox
             Row(
@@ -96,7 +117,7 @@ fun ClinicianConfirmationScreen(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "I understand this tool provides guidance only and I am responsible for all clinical decisions.",
+                    "I understand this tool provides guidance only and I am responsible for clinical decisions.",
                     fontSize = 14.sp,
                     color = Color(0xFF1F1F1F),
                     lineHeight = 20.sp
@@ -106,10 +127,10 @@ fun ClinicianConfirmationScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Did you use the guidance?
-            SectionLabel("Did you use the guidance?")
+            Text("Did you use the guidance?", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
             Spacer(modifier = Modifier.height(10.dp))
             GuidanceUsed.entries.forEach { option ->
-                RadioOptionRow(
+                RadioRow(
                     label = option.label,
                     selected = guidanceUsed == option,
                     onClick = { guidanceUsed = option }
@@ -120,10 +141,10 @@ fun ClinicianConfirmationScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             // Final Action Taken
-            SectionLabel("Final Action Taken")
+            Text("Final Action Taken", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
             Spacer(modifier = Modifier.height(10.dp))
             FinalAction.entries.forEach { action ->
-                RadioOptionRow(
+                RadioRow(
                     label = action.label,
                     selected = finalAction == action,
                     onClick = { finalAction = action }
@@ -133,9 +154,12 @@ fun ClinicianConfirmationScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Optional issue tagging
-            SectionLabel("Optional Issue Tagging")
-            Text("Flag any concerns with this guidance (optional)", fontSize = 13.sp, color = Color(0xFF444746))
+            // Optional Issue Tagging
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Optional Issue Tagging", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("(Optional)", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+            }
             Spacer(modifier = Modifier.height(10.dp))
 
             FlowRow(
@@ -146,22 +170,16 @@ fun ClinicianConfirmationScreen(
                     val selected = tag in selectedTags
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = if (selected) Color(0xFFFDE8E8) else Color.White,
+                        color = if (selected) Color(0xFFF5F5F5) else Color.White,
                         modifier = Modifier
-                            .border(
-                                1.dp,
-                                if (selected) Color(0xFFD32F2F) else Color(0xFFE0E0E0),
-                                RoundedCornerShape(20.dp)
-                            )
-                            .clickable {
-                                selectedTags = if (selected) selectedTags - tag else selectedTags + tag
-                            }
+                            .border(1.dp, if (selected) Color(0xFF444746) else Color(0xFFE0E0E0), RoundedCornerShape(20.dp))
+                            .clickable { selectedTags = if (selected) selectedTags - tag else selectedTags + tag }
                     ) {
                         Text(
-                            text = tag.label,
+                            tag.label,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                             fontSize = 13.sp,
-                            color = if (selected) Color(0xFFD32F2F) else Color(0xFF1F1F1F)
+                            color = Color(0xFF1F1F1F)
                         )
                     }
                 }
@@ -173,12 +191,23 @@ fun ClinicianConfirmationScreen(
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
             Button(
                 onClick = {
-                    onSave(ClinicianConfirmation(
+                    val confirmation = ClinicianConfirmation(
                         understood = understood,
                         guidanceUsed = guidanceUsed,
                         finalAction = finalAction,
                         issueTags = selectedTags.toList()
-                    ))
+                    )
+                    viewModel.setClinicianConfirmation(confirmation)
+                    if (finalAction == FinalAction.Referred) {
+                        pendingConfirmation = confirmation
+                        showReferralSheet = true
+                    } else {
+                        val savedId = viewModel.uiState.value.savedAssessment?.id
+                        if (savedId != null) {
+                            repository.updateConfirmation(savedId, confirmation, null)
+                        }
+                        onCaseSaved(savedId ?: "")
+                    }
                 },
                 enabled = canSave,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -188,41 +217,59 @@ fun ClinicianConfirmationScreen(
                     disabledContainerColor = Color(0xFF9E9E9E)
                 )
             ) {
-                Text(
-                    text = if (finalAction == FinalAction.Referred) "Save & Add Referral Details" else "Save Case",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.White
-                )
+                Text("Save Case", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White)
             }
+        }
+    }
+
+    // ── Referral Sheet ─────────────────────────────────────────────────────────
+    if (showReferralSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showReferralSheet = false },
+            sheetState = referralSheetState,
+            containerColor = Color.White
+        ) {
+            ReferralSheet(
+                onSave = { referral ->
+                    val confirmation = pendingConfirmation
+                    val savedId = viewModel.uiState.value.savedAssessment?.id
+                    if (savedId != null && confirmation != null) {
+                        repository.updateConfirmation(savedId, confirmation, referral)
+                    }
+                    viewModel.setReferralInfo(referral)
+                    scope.launch { referralSheetState.hide() }.invokeOnCompletion {
+                        showReferralSheet = false
+                        onCaseSaved(savedId ?: "")
+                    }
+                },
+                onCancel = {
+                    scope.launch { referralSheetState.hide() }.invokeOnCompletion {
+                        showReferralSheet = false
+                    }
+                }
+            )
         }
     }
 }
 
 @Composable
-private fun SectionLabel(text: String) {
-    Text(text, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
-}
-
-@Composable
-private fun RadioOptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun RadioRow(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, if (selected) NavyBlue else Color(0xFFE0E0E0), RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 13.dp),
+            .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Surface(
-            shape = androidx.compose.foundation.shape.CircleShape,
+            shape = CircleShape,
             color = Color.White,
             border = BorderStroke(1.5.dp, if (selected) NavyBlue else Color(0xFFBDBDBD)),
             modifier = Modifier.size(20.dp)
         ) {
             if (selected) {
                 Surface(
-                    shape = androidx.compose.foundation.shape.CircleShape,
+                    shape = CircleShape,
                     color = NavyBlue,
                     modifier = Modifier
                         .fillMaxSize()
@@ -231,6 +278,6 @@ private fun RadioOptionRow(label: String, selected: Boolean, onClick: () -> Unit
             }
         }
         Spacer(modifier = Modifier.width(12.dp))
-        Text(text = label, fontSize = 14.sp, color = Color(0xFF1F1F1F))
+        Text(label, fontSize = 14.sp, color = Color(0xFF1F1F1F))
     }
 }

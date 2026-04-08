@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.gallery.healthdemo.data.AgeRange
+import com.google.ai.edge.gallery.healthdemo.data.DurationUnit
 import com.google.ai.edge.gallery.healthdemo.data.HealthGuidance
 import com.google.ai.edge.gallery.healthdemo.data.PatientRole
 import com.google.ai.edge.gallery.healthdemo.data.SavedAssessment
@@ -48,10 +49,18 @@ data class HealthDemoUiState(
 
     // Patient assessment form
     val symptoms: String = "",
+    val durationValue: String = "",
+    val durationUnit: DurationUnit = DurationUnit.Days,
     val age: AgeRange? = null,
     val sex: Sex? = null,
     val vitalSigns: VitalSigns = VitalSigns(),
     val capturedImageBytes: ByteArray? = null,
+
+    // Signs & Symptoms
+    val checkedSigns: Set<String> = emptySet(),
+    val confirmedSigns: Set<String> = emptySet(),
+    val pendingSignAlert: String? = null,
+    val pendingSignIsDanger: Boolean = false,
 
     // Guidance result
     val guidance: HealthGuidance? = null,
@@ -59,9 +68,8 @@ data class HealthDemoUiState(
     // Saved assessment (set after save)
     val savedAssessment: SavedAssessment? = null,
 
-    // Danger/warning sign confirmation
+    // Legacy danger sign index (unused in new flow)
     val dangerSignIndex: Int = 0,
-    val confirmedSigns: Set<String> = emptySet(),
 
     // Clinician confirmation (set on ClinicianConfirmationScreen)
     val clinicianConfirmation: ClinicianConfirmation? = null,
@@ -202,6 +210,44 @@ class HealthDemoViewModel @Inject constructor(
 
     fun setVitalSigns(vitalSigns: VitalSigns) {
         _uiState.update { it.copy(vitalSigns = vitalSigns) }
+    }
+
+    fun setDuration(value: String) {
+        _uiState.update { it.copy(durationValue = value) }
+    }
+
+    fun setDurationUnit(unit: DurationUnit) {
+        _uiState.update { it.copy(durationUnit = unit) }
+    }
+
+    // ─── Signs & Symptoms ────────────────────────────────────────────────────────
+
+    fun checkSign(sign: String, isDanger: Boolean) {
+        _uiState.update { it.copy(
+            checkedSigns = it.checkedSigns + sign,
+            pendingSignAlert = sign,
+            pendingSignIsDanger = isDanger
+        )}
+    }
+
+    fun uncheckSign(sign: String) {
+        _uiState.update { it.copy(
+            checkedSigns = it.checkedSigns - sign,
+            confirmedSigns = it.confirmedSigns - sign,
+            pendingSignAlert = null
+        )}
+    }
+
+    fun confirmSign() {
+        val sign = _uiState.value.pendingSignAlert ?: return
+        _uiState.update { it.copy(
+            confirmedSigns = it.confirmedSigns + sign,
+            pendingSignAlert = null
+        )}
+    }
+
+    fun dismissSignForNow() {
+        _uiState.update { it.copy(pendingSignAlert = null) }
     }
 
     /**
@@ -370,9 +416,12 @@ class HealthDemoViewModel @Inject constructor(
             role = state.role ?: PatientRole.Other,
             customRole = state.customRole,
             symptoms = state.symptoms,
+            durationValue = state.durationValue,
+            durationUnit = state.durationUnit,
             age = state.age,
             sex = state.sex,
             vitalSigns = state.vitalSigns,
+            confirmedSigns = state.confirmedSigns,
             guidance = state.guidance!!
         )
     }
@@ -413,9 +462,13 @@ class HealthDemoViewModel @Inject constructor(
             role = state.role ?: PatientRole.Other,
             customRole = state.customRole,
             symptoms = state.symptoms,
+            durationValue = state.durationValue,
+            durationUnit = state.durationUnit,
             age = state.age,
             sex = state.sex,
             vitalSigns = state.vitalSigns,
+            checkedSigns = state.checkedSigns,
+            confirmedSigns = state.confirmedSigns,
             pauseReason = reason,
             note = note
         )
@@ -426,14 +479,18 @@ class HealthDemoViewModel @Inject constructor(
             role = paused.role,
             customRole = paused.customRole,
             symptoms = paused.symptoms,
+            durationValue = paused.durationValue,
+            durationUnit = paused.durationUnit,
             age = paused.age,
             sex = paused.sex,
             vitalSigns = paused.vitalSigns,
+            checkedSigns = paused.checkedSigns,
+            confirmedSigns = paused.confirmedSigns,
+            pendingSignAlert = null,
             guidance = null,
             savedAssessment = null,
             inferenceError = null,
             dangerSignIndex = 0,
-            confirmedSigns = emptySet(),
             clinicianConfirmation = null,
             referralInfo = null,
         )}
