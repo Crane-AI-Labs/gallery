@@ -52,7 +52,8 @@ fun GuidanceScreen(
     repository: HealthDemoRepository,
     onCreateNew: () -> Unit,
     onReturnHome: () -> Unit,
-    onFeedback: () -> Unit
+    onFeedback: () -> Unit,
+    onConfirmOutcome: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val guidance = uiState.guidance ?: return
@@ -311,7 +312,6 @@ fun GuidanceScreen(
 
         // Bottom actions
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-            // Auto-saved indicator
             if (isSaved) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
@@ -319,7 +319,7 @@ fun GuidanceScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Assessment saved automatically.",
+                        text = "Case saved locally. Will sync when connected.",
                         modifier = Modifier.padding(12.dp),
                         fontSize = 13.sp,
                         color = Color(0xFF2E7D32)
@@ -327,6 +327,18 @@ fun GuidanceScreen(
                 }
                 Spacer(modifier = Modifier.height(10.dp))
             }
+
+            // Primary: confirm outcome
+            Button(
+                onClick = onConfirmOutcome,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
+            ) {
+                Text("Confirm Outcome", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             Button(
                 onClick = {
@@ -353,12 +365,7 @@ fun GuidanceScreen(
                 onClick = onReturnHome,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             ) {
-                Text(
-                    text = "Return To Home",
-                    color = NavyBlue,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text("Return To Home", color = NavyBlue, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             }
         }
     }

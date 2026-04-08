@@ -1,0 +1,174 @@
+package com.google.ai.edge.gallery.healthdemo.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+private val DangerRed = Color(0xFFD32F2F)
+private val DangerRedLight = Color(0xFFFDE8E8)
+
+@Composable
+fun DangerSignAlertScreen(
+    sign: String,
+    currentIndex: Int,
+    total: Int,
+    onPresent: () -> Unit,
+    onNotPresent: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
+        // Red header band
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = DangerRed
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Danger Sign Detected",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        if (total > 1) {
+                            Text(
+                                text = "${currentIndex + 1} of $total",
+                                fontSize = 13.sp,
+                                color = Color.White.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+        ) {
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = DangerRedLight,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = sign,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DangerRed
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "This is a high-priority clinical finding. Please confirm whether this sign is present in the patient.",
+                        fontSize = 14.sp,
+                        color = Color(0xFFB71C1C),
+                        lineHeight = 20.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFFFFF8E1),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "If present: consider immediate escalation or referral to a higher facility.",
+                    modifier = Modifier.padding(12.dp),
+                    fontSize = 13.sp,
+                    color = Color(0xFFE65100)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Is this sign present in the patient?",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1F1F1F)
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+            Button(
+                onClick = onPresent,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = DangerRed)
+            ) {
+                Text("Yes, Present — Escalate", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = onNotPresent,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("No, Not Present", fontSize = 15.sp, color = Color(0xFF1F1F1F), fontWeight = FontWeight.Medium)
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text("Dismiss for Now", color = Color(0xFF444746), fontSize = 14.sp)
+            }
+        }
+    }
+}

@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenuItem
@@ -70,7 +72,8 @@ private val NavyBlue = Color(0xFF0D1B5E)
 fun EnterSymptomsScreen(
     viewModel: HealthDemoViewModel,
     onContinue: () -> Unit,
-    onViewSavedResults: () -> Unit
+    onViewSavedResults: () -> Unit,
+    onPause: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val canContinue = uiState.symptoms.isNotBlank()
@@ -124,12 +127,22 @@ fun EnterSymptomsScreen(
         ) {
             Spacer(modifier = Modifier.height(24.dp))
 
-            Text(
-                text = "Patient Assessment",
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF1F1F1F)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Patient Assessment", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                OutlinedButton(
+                    onClick = onPause,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE6A817))
+                ) {
+                    Icon(Icons.Default.Pause, contentDescription = null, tint = Color(0xFFE6A817), modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Pause", fontSize = 13.sp, color = Color(0xFFE6A817))
+                }
+            }
 
             Spacer(modifier = Modifier.height(10.dp))
 

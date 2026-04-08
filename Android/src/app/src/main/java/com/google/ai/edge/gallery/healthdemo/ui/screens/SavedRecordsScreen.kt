@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,6 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -29,28 +32,37 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.ai.edge.gallery.healthdemo.data.FinalAction
 import com.google.ai.edge.gallery.healthdemo.data.HealthDemoRepository
 import com.google.ai.edge.gallery.healthdemo.data.PatientRole
+import com.google.ai.edge.gallery.healthdemo.data.PausedConsultation
 import com.google.ai.edge.gallery.healthdemo.data.SavedAssessment
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 private val NavyBlue = Color(0xFF0D1B5E)
+private val OrangeGold = Color(0xFFE6A817)
 
 @Composable
 fun SavedRecordsScreen(
     repository: HealthDemoRepository,
     onNavigateBack: () -> Unit,
-    onViewDetails: (String) -> Unit
+    onViewDetails: (String) -> Unit,
+    onResumePaused: (String) -> Unit = {}
 ) {
     val assessments by repository.savedAssessments.collectAsState()
+    val pausedList by repository.pausedConsultations.collectAsState()
+    var selectedTab by remember { mutableIntStateOf(0) }
 
     Column(
         modifier = Modifier
@@ -67,110 +79,158 @@ fun SavedRecordsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onNavigateBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color(0xFF1F1F1F)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color(0xFF1F1F1F))
+            }
+            Column {
+                Text("Cases History", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                Text(
+                    text = "${assessments.size} saved · ${pausedList.size} paused",
+                    fontSize = 13.sp,
+                    color = Color(0xFF444746)
                 )
             }
-            Text(
-                text = "Saved Results",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF1F1F1F)
+        }
+
+        // Tabs
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+        ) {
+            TabButton(
+                label = "Saved ${assessments.size}",
+                selected = selectedTab == 0,
+                onClick = { selectedTab = 0 },
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            TabButton(
+                label = "Paused ${pausedList.size}",
+                selected = selectedTab == 1,
+                onClick = { selectedTab = 1 },
+                modifier = Modifier.weight(1f),
+                accentColor = OrangeGold
             )
         }
 
-        if (assessments.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text("No saved assessments yet.", color = Color(0xFF444746), fontSize = 15.sp)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (selectedTab == 0) {
+            // Saved tab
+            if (assessments.isEmpty()) {
+                EmptyState("No saved cases yet.")
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).padding(horizontal = 24.dp)
+                ) {
+                    items(assessments) { assessment ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        AssessmentCard(assessment = assessment, onViewDetails = { onViewDetails(assessment.id) })
+                    }
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
+                }
             }
         } else {
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 24.dp)
-            ) {
-                items(assessments) { assessment ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    AssessmentCard(
-                        assessment = assessment,
-                        onViewDetails = { onViewDetails(assessment.id) }
-                    )
+            // Paused tab
+            if (pausedList.isEmpty()) {
+                EmptyState("No paused consultations.")
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).padding(horizontal = 24.dp)
+                ) {
+                    items(pausedList) { paused ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        PausedListCard(paused = paused, onResume = { onResumePaused(paused.id) })
+                    }
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
-                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         }
 
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
             OutlinedButton(
                 onClick = onNavigateBack,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(8.dp),
                 border = BorderStroke(1.5.dp, NavyBlue)
             ) {
-                Text("Back To Assessment", color = NavyBlue, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                Text("Back", color = NavyBlue, fontWeight = FontWeight.Medium, fontSize = 15.sp)
             }
         }
     }
 }
 
 @Composable
-private fun AssessmentCard(assessment: SavedAssessment, onViewDetails: () -> Unit) {
-    val dateStr = SimpleDateFormat("MMM d, yyyy, hh:mm a", Locale.getDefault())
-        .format(Date(assessment.timestamp))
+private fun TabButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accentColor: Color = NavyBlue
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) accentColor else Color.White,
+        modifier = modifier
+            .border(1.dp, if (selected) accentColor else Color(0xFFE0E0E0), RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = label,
+                modifier = Modifier.padding(vertical = 10.dp),
+                fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) Color.White else Color(0xFF1F1F1F)
+            )
+        }
+    }
+}
 
+@Composable
+private fun EmptyState(message: String) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(message, color = Color(0xFF444746), fontSize = 15.sp)
+    }
+}
+
+@Composable
+private fun AssessmentCard(assessment: SavedAssessment, onViewDetails: () -> Unit) {
+    val dateStr = SimpleDateFormat("MMM d, yyyy · hh:mm a", Locale.getDefault())
+        .format(Date(assessment.timestamp))
     val displayRole = if (assessment.role == PatientRole.Other && assessment.customRole.isNotBlank())
         assessment.customRole else assessment.role.label
+    val hasDangerSigns = assessment.guidance.redFlags.isNotEmpty()
+    val finalAction = assessment.clinicianConfirmation?.finalAction
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(12.dp))
+            .border(1.dp, if (hasDangerSigns) Color(0xFFFFCDD2) else Color(0xFFE0E0E0), RoundedCornerShape(12.dp))
             .padding(16.dp)
     ) {
-        Text(text = dateStr, fontSize = 13.sp, color = Color(0xFF444746))
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Age:", fontSize = 12.sp, color = Color(0xFF444746))
-                Text(
-                    text = assessment.age?.label ?: "N/A",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1F1F1F)
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Sex:", fontSize = 12.sp, color = Color(0xFF444746))
-                Text(
-                    text = assessment.sex?.label ?: "N/A",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1F1F1F)
-                )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("#CASE${assessment.id.takeLast(6).uppercase()}", fontSize = 12.sp, color = Color(0xFF444746), fontWeight = FontWeight.Medium)
+            if (hasDangerSigns) {
+                Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFFFDE8E8)) {
+                    Text("Danger Signs", modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), fontSize = 11.sp, color = Color(0xFFD32F2F))
+                }
             }
         }
 
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(dateStr, fontSize = 12.sp, color = Color(0xFF444746))
         Spacer(modifier = Modifier.height(8.dp))
-
         Text("Symptoms:", fontSize = 12.sp, color = Color(0xFF444746))
-        Text(
-            text = assessment.symptoms,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF1F1F1F)
-        )
+        Text(assessment.symptoms, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
 
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -179,35 +239,74 @@ private fun AssessmentCard(assessment: SavedAssessment, onViewDetails: () -> Uni
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFFF0F1FA)
-            ) {
-                Text(
-                    text = "Role: $displayRole",
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    fontSize = 12.sp,
-                    color = NavyBlue,
-                    fontWeight = FontWeight.Medium
-                )
+            Row {
+                Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFFF0F1FA)) {
+                    Text("$displayRole", modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), fontSize = 12.sp, color = NavyBlue, fontWeight = FontWeight.Medium)
+                }
+                if (finalAction != null) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    val (bg, fg) = when (finalAction) {
+                        FinalAction.Referred -> Pair(Color(0xFFE3F2FD), Color(0xFF1565C0))
+                        FinalAction.Escalated -> Pair(Color(0xFFFDE8E8), Color(0xFFD32F2F))
+                        FinalAction.ManagedLocally -> Pair(Color(0xFFE8F5E9), Color(0xFF2E7D32))
+                        else -> Pair(Color(0xFFF5F5F5), Color(0xFF444746))
+                    }
+                    Surface(shape = RoundedCornerShape(16.dp), color = bg) {
+                        Text(finalAction.label, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), fontSize = 12.sp, color = fg)
+                    }
+                }
             }
+            Row(modifier = Modifier.clickable(onClick = onViewDetails), verticalAlignment = Alignment.CenterVertically) {
+                Text("View", color = NavyBlue, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = NavyBlue, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
 
-            Row(
-                modifier = Modifier.clickable(onClick = onViewDetails),
-                verticalAlignment = Alignment.CenterVertically
+@Composable
+private fun PausedListCard(paused: PausedConsultation, onResume: () -> Unit) {
+    val timeStr = SimpleDateFormat("MMM d, yyyy · hh:mm a", Locale.getDefault()).format(Date(paused.timestamp))
+    val displayRole = if (paused.role == PatientRole.Other && paused.customRole.isNotBlank())
+        paused.customRole else paused.role.label
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFFFFE0B2), RoundedCornerShape(12.dp))
+            .padding(16.dp)
+    ) {
+        Text(timeStr, fontSize = 12.sp, color = Color(0xFF444746))
+        Spacer(modifier = Modifier.height(6.dp))
+        Text("Symptoms:", fontSize = 12.sp, color = Color(0xFF444746))
+        Text(paused.symptoms.ifBlank { "No symptoms entered" }, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row {
+                Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFFF0F1FA)) {
+                    Text(displayRole, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), fontSize = 12.sp, color = NavyBlue)
+                }
+                if (paused.pauseReason != null) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFFFFF3E0)) {
+                        Text(paused.pauseReason.label, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), fontSize = 12.sp, color = OrangeGold)
+                    }
+                }
+            }
+            Button(
+                onClick = onResume,
+                modifier = Modifier.height(34.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = OrangeGold),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 0.dp)
             ) {
-                Text(
-                    text = "View Details",
-                    color = NavyBlue,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = NavyBlue
-                )
+                Text("Resume", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
             }
         }
     }

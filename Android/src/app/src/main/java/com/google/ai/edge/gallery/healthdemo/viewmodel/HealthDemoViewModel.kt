@@ -25,6 +25,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import android.content.Context
 import com.google.ai.edge.gallery.analytics.HealthDemoAnalytics
 import com.google.ai.edge.gallery.healthdemo.data.AppSettings
+import com.google.ai.edge.gallery.healthdemo.data.ClinicianConfirmation
+import com.google.ai.edge.gallery.healthdemo.data.PauseReason
+import com.google.ai.edge.gallery.healthdemo.data.PausedConsultation
+import com.google.ai.edge.gallery.healthdemo.data.ReferralInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -54,6 +58,16 @@ data class HealthDemoUiState(
 
     // Saved assessment (set after save)
     val savedAssessment: SavedAssessment? = null,
+
+    // Danger/warning sign confirmation
+    val dangerSignIndex: Int = 0,
+    val confirmedSigns: Set<String> = emptySet(),
+
+    // Clinician confirmation (set on ClinicianConfirmationScreen)
+    val clinicianConfirmation: ClinicianConfirmation? = null,
+
+    // Referral info (set on ReferralScreen)
+    val referralInfo: ReferralInfo? = null,
 
     // Processing state
     val isProcessing: Boolean = false,
@@ -366,6 +380,63 @@ class HealthDemoViewModel @Inject constructor(
     fun markSaved(assessment: SavedAssessment) {
         _uiState.update { it.copy(savedAssessment = assessment) }
         HealthDemoAnalytics.logAssessmentSaved()
+    }
+
+    // ─── Danger sign flow ────────────────────────────────────────────────────────
+
+    fun confirmDangerSign(sign: String) {
+        _uiState.update { it.copy(
+            confirmedSigns = it.confirmedSigns + sign,
+            dangerSignIndex = it.dangerSignIndex + 1
+        )}
+    }
+
+    fun dismissDangerSign() {
+        _uiState.update { it.copy(dangerSignIndex = it.dangerSignIndex + 1) }
+    }
+
+    // ─── Clinician confirmation / referral ───────────────────────────────────────
+
+    fun setClinicianConfirmation(confirmation: ClinicianConfirmation) {
+        _uiState.update { it.copy(clinicianConfirmation = confirmation) }
+    }
+
+    fun setReferralInfo(referral: ReferralInfo) {
+        _uiState.update { it.copy(referralInfo = referral) }
+    }
+
+    // ─── Pause / Resume ──────────────────────────────────────────────────────────
+
+    fun buildPausedConsultation(reason: PauseReason?, note: String): PausedConsultation {
+        val state = _uiState.value
+        return PausedConsultation(
+            role = state.role ?: PatientRole.Other,
+            customRole = state.customRole,
+            symptoms = state.symptoms,
+            age = state.age,
+            sex = state.sex,
+            vitalSigns = state.vitalSigns,
+            pauseReason = reason,
+            note = note
+        )
+    }
+
+    fun loadPausedConsultation(paused: PausedConsultation) {
+        _uiState.update { it.copy(
+            role = paused.role,
+            customRole = paused.customRole,
+            symptoms = paused.symptoms,
+            age = paused.age,
+            sex = paused.sex,
+            vitalSigns = paused.vitalSigns,
+            guidance = null,
+            savedAssessment = null,
+            inferenceError = null,
+            dangerSignIndex = 0,
+            confirmedSigns = emptySet(),
+            clinicianConfirmation = null,
+            referralInfo = null,
+        )}
     }
 
     fun resetAssessment() {
