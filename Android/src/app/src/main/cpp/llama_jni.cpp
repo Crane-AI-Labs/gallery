@@ -21,6 +21,8 @@ struct inference_context {
     float temperature;
     int top_k;
     float top_p;
+    int n_past;               // number of tokens currently in the KV cache
+    std::vector<llama_token> cache_tokens;  // token history matching KV cache contents
 };
 
 static void rebuild_sampler(inference_context * inf_ctx, float temperature, int top_k, float top_p) {
@@ -40,16 +42,29 @@ static void rebuild_sampler(inference_context * inf_ctx, float temperature, int 
 
 extern "C" {
 
+// Map integer KV cache type codes to ggml types
+// 0=f16 (default), 1=q8_0, 2=q4_0, 3=turbo3, 4=turbo4
+static enum lm_ggml_type kv_type_from_code(int code) {
+    switch (code) {
+        case 1:  return LM_GGML_TYPE_Q8_0;
+        case 2:  return LM_GGML_TYPE_Q4_0;
+        case 3:  return LM_GGML_TYPE_TURBO3_0;
+        case 4:  return LM_GGML_TYPE_TURBO4_0;
+        default: return LM_GGML_TYPE_F16;
+    }
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitModel(
     JNIEnv *env,
     jobject /* this */,
     jstring modelPath,
     jint nCtx,
-    jint nGpuLayers
+    jint nGpuLayers,
+    jint kvCacheType
 ) {
     const char *path = env->GetStringUTFChars(modelPath, nullptr);
-    LOGI("initModel: %s, nCtx=%d, nGpuLayers=%d", path, nCtx, nGpuLayers);
+    LOGI("initModel: %s, nCtx=%d, nGpuLayers=%d, kvCacheType=%d", path, nCtx, nGpuLayers, kvCacheType);
 
     llama_backend_init();
 
@@ -66,8 +81,14 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitModel(
 
     auto ctx_params = llama_context_default_params();
     ctx_params.n_ctx = nCtx;
-    ctx_params.n_batch = 512;
+    ctx_params.n_batch = 2048;
     ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+
+    // TurboQuant KV cache compression (arXiv 2504.19874)
+    enum lm_ggml_type kv_type = kv_type_from_code(kvCacheType);
+    ctx_params.type_k = kv_type;
+    ctx_params.type_v = kv_type;
+    LOGI("KV cache type: %d (ggml type %d)", kvCacheType, (int)kv_type);
 
     llama_context * ctx = llama_init_from_model(model, ctx_params);
     if (!ctx) {
@@ -82,6 +103,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitModel(
     inf_ctx->sampler = nullptr;
     inf_ctx->mtmd_ctx = nullptr;
     inf_ctx->stop_requested = false;
+    inf_ctx->n_past = 0;
 
     // Default sampler params
     rebuild_sampler(inf_ctx, 0.7f, 40, 0.9f);
@@ -125,7 +147,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
     jclass callbackClass = env->GetObjectClass(callback);
     jmethodID onTokenMethod = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
 
-    // Tokenize prompt
+    // Tokenize the full prompt (entire conversation so far)
     const llama_vocab * vocab = llama_model_get_vocab(inf_ctx->model);
     std::vector<llama_token> tokens(prompt_str.size() + 16);
     int n_tokens = llama_tokenize(vocab, prompt_str.c_str(), prompt_str.size(),
@@ -137,11 +159,51 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
     }
     tokens.resize(n_tokens);
 
-    LOGI("Prompt tokenized: %d tokens", n_tokens);
+    // --- KV cache reuse: find common prefix with cached tokens ---
+    int n_ctx = llama_n_ctx(inf_ctx->ctx);
+    int n_keep = 0;  // how many cached tokens match the new prompt prefix
 
-    // Evaluate prompt in batches (n_batch = 512)
-    const int n_batch = 512;
-    for (int i = 0; i < n_tokens; i += n_batch) {
+    // Check if the new prompt extends the cached token sequence
+    int n_cached = (int)inf_ctx->cache_tokens.size();
+    for (int i = 0; i < std::min(n_cached, n_tokens); i++) {
+        if (inf_ctx->cache_tokens[i] == tokens[i]) {
+            n_keep++;
+        } else {
+            break;
+        }
+    }
+
+    // If the cache diverged from the new prompt, we need to truncate the KV cache
+    // back to the common prefix point
+    if (n_keep < n_cached) {
+        // Remove KV cache entries beyond the common prefix
+        // llama_kv_self_seq_rm removes tokens from pos [p0, p1)
+        // We keep [0, n_keep) and remove [n_keep, n_cached)
+        llama_memory_seq_rm(llama_get_memory(inf_ctx->ctx), 0, n_keep, n_cached);
+        inf_ctx->cache_tokens.resize(n_keep);
+        inf_ctx->n_past = n_keep;
+        LOGI("KV cache truncated: kept %d of %d cached tokens", n_keep, n_cached);
+    }
+
+    int n_new = n_tokens - n_keep;  // tokens that need processing
+
+    // Safety: if total tokens after generation might exceed n_ctx, clear and reprocess
+    // Reserve space for generation (nPredict tokens)
+    if (n_tokens + nPredict > n_ctx) {
+        LOGI("Prompt + nPredict (%d + %d = %d) exceeds n_ctx (%d), clearing cache",
+             n_tokens, nPredict, n_tokens + nPredict, n_ctx);
+        llama_memory_clear(llama_get_memory(inf_ctx->ctx), true);
+        inf_ctx->cache_tokens.clear();
+        inf_ctx->n_past = 0;
+        n_keep = 0;
+        n_new = n_tokens;
+    }
+
+    LOGI("Prompt: %d tokens, cached: %d reused, %d new to process", n_tokens, n_keep, n_new);
+
+    // Evaluate only the NEW tokens (skip the common prefix already in KV cache)
+    const int n_batch = 2048;
+    for (int i = n_keep; i < n_tokens; i += n_batch) {
         int n_eval = std::min(n_batch, n_tokens - i);
         llama_batch batch = llama_batch_get_one(tokens.data() + i, n_eval);
         if (llama_decode(inf_ctx->ctx, batch) != 0) {
@@ -149,6 +211,10 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
             return env->NewStringUTF("{\"error\":\"Failed to evaluate prompt\"}");
         }
     }
+
+    // Update cache tracking: the KV cache now holds all prompt tokens
+    inf_ctx->cache_tokens = tokens;
+    inf_ctx->n_past = n_tokens;
 
     // Generate tokens
     std::string result_text;
@@ -178,6 +244,10 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
             env->DeleteLocalRef(jtoken);
         }
 
+        // Track generated token in cache
+        inf_ctx->cache_tokens.push_back(new_token);
+        inf_ctx->n_past++;
+
         // Prepare next batch
         llama_batch next_batch = llama_batch_get_one(&new_token, 1);
         if (llama_decode(inf_ctx->ctx, next_batch) != 0) {
@@ -186,7 +256,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
         }
     }
 
-    // Build result JSON
+    // Build result JSON — include cache stats for Kotlin layer
     std::string json = "{\"text\":\"";
     for (char c : result_text) {
         switch (c) {
@@ -198,10 +268,15 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
             default: json += c;
         }
     }
-    json += "\",\"tokens_generated\":" + std::to_string(n_generated) + "}";
+    json += "\",\"tokens_generated\":" + std::to_string(n_generated);
+    json += ",\"tokens_cached\":" + std::to_string(inf_ctx->n_past);
+    json += ",\"prompt_tokens_reused\":" + std::to_string(n_keep);
+    json += "}";
 
-    // Clear KV cache for next completion (fast — no context recreation)
-    llama_memory_clear(llama_get_memory(inf_ctx->ctx), true);
+    // NOTE: KV cache is intentionally NOT cleared here.
+    // The cache persists across turns so multi-turn conversation
+    // doesn't re-process system prompt + history each time.
+    // Call nativeClearContext() explicitly when starting a new conversation.
 
     return env->NewStringUTF(json.c_str());
 }
@@ -216,6 +291,32 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeStopCompletion(
     if (inf_ctx) {
         inf_ctx->stop_requested = true;
     }
+}
+
+JNIEXPORT void JNICALL
+Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeClearContext(
+    JNIEnv * /* env */,
+    jobject /* this */,
+    jlong handle
+) {
+    auto * inf_ctx = reinterpret_cast<inference_context *>(handle);
+    if (inf_ctx && inf_ctx->ctx) {
+        llama_memory_clear(llama_get_memory(inf_ctx->ctx), true);
+        inf_ctx->cache_tokens.clear();
+        inf_ctx->n_past = 0;
+        LOGI("KV cache cleared (new conversation)");
+    }
+}
+
+JNIEXPORT jint JNICALL
+Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeGetCacheTokenCount(
+    JNIEnv * /* env */,
+    jobject /* this */,
+    jlong handle
+) {
+    auto * inf_ctx = reinterpret_cast<inference_context *>(handle);
+    if (!inf_ctx) return 0;
+    return inf_ctx->n_past;
 }
 
 JNIEXPORT void JNICALL
@@ -416,8 +517,14 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletionWithImage(
     }
     json += "\",\"tokens_generated\":" + std::to_string(n_generated) + "}";
 
-    // Clear KV cache for next completion
-    llama_memory_clear(llama_get_memory(inf_ctx->ctx), true);
+    // Update cache tracking for vision completions.
+    // Vision completions use mtmd_helper_eval_chunks which manages positions internally,
+    // so we track n_past but don't try prefix-matching for vision turns.
+    inf_ctx->n_past = n_past + n_generated;
+    inf_ctx->cache_tokens.clear();  // can't do prefix-match after vision chunks
+
+    // NOTE: KV cache is intentionally NOT cleared here.
+    // Call nativeClearContext() explicitly when starting a new conversation.
 
     return env->NewStringUTF(json.c_str());
 }

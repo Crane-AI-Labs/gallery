@@ -3,8 +3,8 @@ project(llama_jni)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# Path to llama.rn source (from the LlamaVision node_modules)
-set(LLAMA_RN_DIR "/Users/bakunga/Documents/Projects/LlamaVision/node_modules/llama.rn")
+# Path to llama.rn TurboQuant fork (submodule in this repo)
+set(LLAMA_RN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/llama-rn-turbo-quant")
 
 # Build all rnllama variants from source
 add_subdirectory(

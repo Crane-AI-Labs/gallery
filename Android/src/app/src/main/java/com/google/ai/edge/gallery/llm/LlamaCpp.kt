@@ -81,9 +81,17 @@ object LlamaCpp {
 
     fun isAvailable(): Boolean = nativeLoaded
 
-    fun initModel(modelPath: String, nCtx: Int, nGpuLayers: Int): Long {
+    /**
+     * KV cache type codes:
+     * 0 = f16 (default, no compression)
+     * 1 = q8_0 (50% memory savings)
+     * 2 = q4_0 (75% memory savings)
+     * 3 = turbo3 (81% savings, TurboQuant arXiv 2504.19874)
+     * 4 = turbo4 (75% savings, TurboQuant)
+     */
+    fun initModel(modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int = 2): Long {
         if (!nativeLoaded) return 0L
-        return nativeInitModel(modelPath, nCtx, nGpuLayers)
+        return nativeInitModel(modelPath, nCtx, nGpuLayers, kvCacheType)
     }
 
     fun completion(
@@ -108,6 +116,24 @@ object LlamaCpp {
         if (nativeLoaded) nativeReleaseModel(handle)
     }
 
+    /**
+     * Explicitly clear the KV cache. Call this when starting a NEW conversation,
+     * not between turns of the same conversation. Between turns the cache is
+     * reused so the system prompt and prior history don't need re-processing.
+     */
+    fun clearContext(handle: Long) {
+        if (nativeLoaded) nativeClearContext(handle)
+    }
+
+    /**
+     * Returns the number of tokens currently in the KV cache.
+     * Useful for monitoring cache utilization relative to n_ctx.
+     */
+    fun getCacheTokenCount(handle: Long): Int {
+        if (!nativeLoaded) return 0
+        return nativeGetCacheTokenCount(handle)
+    }
+
     fun initVision(handle: Long, mmprojPath: String): Boolean {
         if (!nativeLoaded) return false
         return nativeInitVision(handle, mmprojPath)
@@ -127,13 +153,15 @@ object LlamaCpp {
         return nativeCompletionWithImage(handle, prompt, imageData, nPredict, temperature, topK, topP, callback)
     }
 
-    private external fun nativeInitModel(modelPath: String, nCtx: Int, nGpuLayers: Int): Long
+    private external fun nativeInitModel(modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int): Long
     private external fun nativeCompletion(
         handle: Long, prompt: String, nPredict: Int,
         temperature: Float, topK: Int, topP: Float,
         stopSequences: String, callback: TokenCallback
     ): String
     private external fun nativeStopCompletion(handle: Long)
+    private external fun nativeClearContext(handle: Long)
+    private external fun nativeGetCacheTokenCount(handle: Long): Int
     private external fun nativeReleaseModel(handle: Long)
     private external fun nativeInitVision(handle: Long, mmprojPath: String): Boolean
     private external fun nativeCompletionWithImage(
