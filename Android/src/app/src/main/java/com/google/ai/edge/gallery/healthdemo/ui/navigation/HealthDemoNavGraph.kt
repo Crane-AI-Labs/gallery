@@ -119,6 +119,11 @@ fun HealthDemoNavGraph(
                 onConfirmOutcome = {
                     navController.navigate(HealthDemoDestinations.CLINICIAN_CONFIRMATION)
                 },
+                onReferralSaved = { savedId ->
+                    navController.navigate(HealthDemoDestinations.caseSaved(savedId)) {
+                        popUpTo(HealthDemoDestinations.GUIDANCE)
+                    }
+                },
                 onSavePausedAndGoHome = { paused ->
                     repository.savePaused(paused)
                     viewModel.resetAssessment()
