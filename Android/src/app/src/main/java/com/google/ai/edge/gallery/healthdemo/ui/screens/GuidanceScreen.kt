@@ -21,7 +21,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -49,7 +48,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.ai.edge.gallery.healthdemo.data.HealthDemoRepository
 import com.google.ai.edge.gallery.healthdemo.data.PausedConsultation
-import com.google.ai.edge.gallery.healthdemo.data.ReferralInfo
 import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
 import kotlinx.coroutines.launch
 
@@ -65,17 +63,14 @@ fun GuidanceScreen(
     onReturnHome: () -> Unit,
     onFeedback: () -> Unit,
     onConfirmOutcome: () -> Unit = {},
-    onReferralSaved: (String) -> Unit = {},
     onSavePausedAndGoHome: (PausedConsultation) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val guidance = uiState.guidance ?: return
     val isSaved = uiState.savedAssessment != null
     var showNewAssessmentDialog by remember { mutableStateOf(false) }
-    var showReferralSheet by remember { mutableStateOf(false) }
     var showPauseSheet by remember { mutableStateOf(false) }
 
-    val referralSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pauseSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
 
@@ -359,20 +354,6 @@ fun GuidanceScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Refer Patient
-            OutlinedButton(
-                onClick = { showReferralSheet = true },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, NavyBlue)
-            ) {
-                Icon(Icons.Default.Send, contentDescription = null, tint = NavyBlue, modifier = androidx.compose.ui.Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Refer Patient", fontSize = 15.sp, color = NavyBlue, fontWeight = FontWeight.Medium)
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
             // Pause Patient
             OutlinedButton(
                 onClick = { showPauseSheet = true },
@@ -408,34 +389,6 @@ fun GuidanceScreen(
             ) {
                 Text("Return To Home", color = NavyBlue, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             }
-        }
-    }
-
-    // ── Referral Sheet ─────────────────────────────────────────────────────────
-    if (showReferralSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showReferralSheet = false },
-            sheetState = referralSheetState,
-            containerColor = Color.White
-        ) {
-            ReferralSheet(
-                onSave = { referral: ReferralInfo ->
-                    val savedId = uiState.savedAssessment?.id
-                    if (savedId != null) {
-                        repository.updateReferral(savedId, referral)
-                    }
-                    viewModel.setReferralInfo(referral)
-                    scope.launch { referralSheetState.hide() }.invokeOnCompletion {
-                        showReferralSheet = false
-                        onReferralSaved(savedId ?: "")
-                    }
-                },
-                onCancel = {
-                    scope.launch { referralSheetState.hide() }.invokeOnCompletion {
-                        showReferralSheet = false
-                    }
-                }
-            )
         }
     }
 
