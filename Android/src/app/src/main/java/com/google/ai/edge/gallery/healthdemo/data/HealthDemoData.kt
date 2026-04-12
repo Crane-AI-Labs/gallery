@@ -79,12 +79,25 @@ val SIGN_INFO: Map<String, SignInfo> = mapOf(
 )
 
 enum class AgeRange(val label: String) {
-    Under1("Under 1 Year"),
-    Yr1to5("1–5 Years"),
-    Yr6to12("6–12 Years"),
-    Yr13to17("13–17 Years"),
-    Yr18to59("18–59 Years"),
-    Yr60Plus("60+ Years")
+    Newborn("Newborn (0–28 days)"),
+    Infant("Infant (1–11 months)"),
+    YoungChild("Young Child (1–5 yrs)"),
+    Child("Child (6–12 yrs)"),
+    Adolescent("Adolescent (13–17)"),
+    Adult("Adult (18–49)"),
+    MatureAdult("Mature Adult (50–59)"),
+    Elder("Elder (60+)")
+}
+
+fun ageGroupFromInput(years: Int, months: Int): AgeRange = when {
+    years == 0 && months == 0 -> AgeRange.Newborn
+    years == 0              -> AgeRange.Infant
+    years <= 5              -> AgeRange.YoungChild
+    years <= 12             -> AgeRange.Child
+    years <= 17             -> AgeRange.Adolescent
+    years <= 49             -> AgeRange.Adult
+    years <= 59             -> AgeRange.MatureAdult
+    else                    -> AgeRange.Elder
 }
 
 enum class Sex(val label: String) {
