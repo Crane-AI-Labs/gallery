@@ -51,6 +51,8 @@ data class HealthDemoUiState(
     val symptoms: String = "",
     val durationValue: String = "",
     val durationUnit: DurationUnit = DurationUnit.Days,
+    val ageYears: String = "",
+    val ageMonths: String = "",
     val age: AgeRange? = null,
     val sex: Sex? = null,
     val vitalSigns: VitalSigns = VitalSigns(),
@@ -113,8 +115,12 @@ class HealthDemoViewModel @Inject constructor(
         _uiState.update { it.copy(symptoms = symptoms) }
     }
 
-    fun setAge(age: AgeRange) {
-        _uiState.update { it.copy(age = age) }
+    fun setAgeInput(years: String, months: String) {
+        val y = years.toIntOrNull() ?: 0
+        val m = months.toIntOrNull()?.coerceIn(0, 11) ?: 0
+        val group = if (years.isBlank() && months.isBlank()) null
+                    else com.google.ai.edge.gallery.healthdemo.data.ageGroupFromInput(y, m)
+        _uiState.update { it.copy(ageYears = years, ageMonths = months, age = group) }
     }
 
     fun setSex(sex: Sex) {

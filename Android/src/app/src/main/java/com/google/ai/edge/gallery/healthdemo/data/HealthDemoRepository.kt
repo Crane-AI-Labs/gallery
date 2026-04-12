@@ -38,4 +38,10 @@ class HealthDemoRepository {
 
     fun getPausedById(id: String): PausedConsultation? =
         _pausedConsultations.value.find { it.id == id }
+
+    fun updateReferral(id: String, referral: ReferralInfo) {
+        _savedAssessments.value = _savedAssessments.value.map { a ->
+            if (a.id == id) a.copy(referralInfo = referral) else a
+        }
+    }
 }

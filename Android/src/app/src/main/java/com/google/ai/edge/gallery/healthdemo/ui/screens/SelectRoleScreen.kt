@@ -3,6 +3,7 @@ package com.google.ai.edge.gallery.healthdemo.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -200,23 +201,20 @@ private fun RoleRow(role: PatientRole, isSelected: Boolean, onClick: () -> Unit)
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Icon circle
-        Row(
+        Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(44.dp)
                 .background(
                     color = if (isSelected) NavyBlue else Color(0xFFF5F5F5),
                     shape = CircleShape
                 ),
-            verticalAlignment = Alignment.CenterVertically
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = roleIcon(role),
                 contentDescription = null,
                 tint = if (isSelected) Color.White else Color(0xFF666666),
-                modifier = Modifier
-                    .size(20.dp)
-                    .align(Alignment.CenterVertically)
-                    .padding(start = 9.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
 
