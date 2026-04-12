@@ -77,6 +77,14 @@ android {
     compose = true
     buildConfig = true
   }
+  // Store model files uncompressed — they're already quantized and barely compress.
+  // This also prevents the compressAssets task from loading them into memory.
+  aaptOptions {
+    noCompress += listOf(
+      "gguf", "onnx", "json",
+      "partaa", "partab", "partac", "partad", "partae"
+    )
+  }
 }
 
 dependencies {

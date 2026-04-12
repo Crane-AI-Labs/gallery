@@ -88,11 +88,35 @@ object LlamaCpp {
      * 2 = q4_0 (75% memory savings)
      * 3 = turbo3 (81% savings, TurboQuant arXiv 2504.19874)
      * 4 = turbo4 (75% savings, TurboQuant)
+     *
+     * @param nBatch Prompt processing batch size. Lower this on low-RAM devices to avoid OOM.
+     *               Recommended: 256 for <3GB RAM, 512 for <5GB, 2048 for flagships.
      */
-    fun initModel(modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int = 2): Long {
+    fun initModel(
+        modelPath: String,
+        nCtx: Int,
+        nGpuLayers: Int,
+        kvCacheType: Int = 2,
+        nBatch: Int = 2048
+    ): Long {
         if (!nativeLoaded) return 0L
-        return nativeInitModel(modelPath, nCtx, nGpuLayers, kvCacheType)
+        return nativeInitModel(modelPath, nCtx, nGpuLayers, kvCacheType, nBatch)
     }
+
+    /** Returns the number of inference threads currently bound to perf cores. */
+    fun getThreadCount(handle: Long): Int {
+        if (!nativeLoaded) return 0
+        return nativeGetThreadCount(handle)
+    }
+
+    /** Returns CPU IDs of detected performance cores as a comma-separated string. */
+    fun getPerfCoreInfo(): String {
+        if (!nativeLoaded) return ""
+        return nativeGetPerfCoreInfo()
+    }
+
+    /** Returns the variant name of the loaded native library (e.g. "v8_2_dotprod_i8mm"). */
+    fun getLoadedVariant(): String = loadedVariant
 
     fun completion(
         handle: Long,
@@ -153,7 +177,7 @@ object LlamaCpp {
         return nativeCompletionWithImage(handle, prompt, imageData, nPredict, temperature, topK, topP, callback)
     }
 
-    private external fun nativeInitModel(modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int): Long
+    private external fun nativeInitModel(modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int, nBatch: Int): Long
     private external fun nativeCompletion(
         handle: Long, prompt: String, nPredict: Int,
         temperature: Float, topK: Int, topP: Float,
@@ -162,6 +186,8 @@ object LlamaCpp {
     private external fun nativeStopCompletion(handle: Long)
     private external fun nativeClearContext(handle: Long)
     private external fun nativeGetCacheTokenCount(handle: Long): Int
+    private external fun nativeGetThreadCount(handle: Long): Int
+    private external fun nativeGetPerfCoreInfo(): String
     private external fun nativeReleaseModel(handle: Long)
     private external fun nativeInitVision(handle: Long, mmprojPath: String): Boolean
     private external fun nativeCompletionWithImage(

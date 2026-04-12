@@ -18,6 +18,7 @@ import com.google.ai.edge.gallery.healthdemo.data.GuidanceValidator
 import com.google.ai.edge.gallery.healthdemo.data.ImagePreprocessor
 import com.google.ai.edge.gallery.healthdemo.data.MedAsrEngine
 import com.google.ai.edge.gallery.healthdemo.data.VitalSigns
+import com.google.ai.edge.gallery.llm.DeviceInfo
 import com.google.ai.edge.gallery.llm.LlamaCpp
 import com.google.ai.edge.gallery.llm.TokenCallback
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import android.content.Context
 import com.google.ai.edge.gallery.analytics.HealthDemoAnalytics
+import com.google.ai.edge.gallery.data.ModelAssetManager
 import com.google.ai.edge.gallery.healthdemo.data.AppSettings
 import com.google.ai.edge.gallery.healthdemo.data.ClinicianConfirmation
 import com.google.ai.edge.gallery.healthdemo.data.PauseReason
@@ -37,8 +39,6 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val TAG = "HealthDemoViewModel"
-private const val DEFAULT_MODEL_PATH = "/data/local/tmp/medgemma-v5b-Q4_0.gguf"
-private const val MMPROJ_PATH = "/data/local/tmp/medgemma-mmproj-Q8_0.gguf"
 private const val N_CTX = 2048
 private const val N_GPU_LAYERS = 99  // offload as many layers as possible to GPU
 
@@ -190,8 +190,14 @@ class HealthDemoViewModel @Inject constructor(
             Log.d(TAG, "Transcribing ${pcmBytes.size} bytes of audio")
 
             try {
-                MedAsrEngine.setModelPath(AppSettings.getAsrModelPath(appContext))
-                MedAsrEngine.setTokenizerPath(AppSettings.getTokenizerPath(appContext))
+                MedAsrEngine.setModelPath(
+                    AppSettings.getAsrModelPath(appContext)
+                        ?: ModelAssetManager.getModelPath(appContext, ModelAssetManager.ASR_MODEL)
+                )
+                MedAsrEngine.setTokenizerPath(
+                    AppSettings.getTokenizerPath(appContext)
+                        ?: ModelAssetManager.getModelPath(appContext, ModelAssetManager.ASR_TOKENIZER)
+                )
                 val transcript = MedAsrEngine.transcribe(pcmBytes)
                 if (transcript.isNotBlank()) {
                     _uiState.update { state ->
@@ -299,8 +305,11 @@ class HealthDemoViewModel @Inject constructor(
 
         // Load model if not already loaded
         if (modelHandle == 0L) {
-            setStatus("Loading AI model...")
-            val modelPath = AppSettings.getLlmModelPath(appContext) ?: DEFAULT_MODEL_PATH
+            setStatus("Loading...")
+            val modelPath = AppSettings.getLlmModelPath(appContext)
+                ?: ModelAssetManager.getModelPath(appContext, ModelAssetManager.LLM_MODEL)
+            Log.d(TAG, "Device: ${DeviceInfo.summary(appContext)}")
+            Log.d(TAG, "Native variant: ${LlamaCpp.getLoadedVariant()}, perf cores: ${LlamaCpp.getPerfCoreInfo()}")
             Log.d(TAG, "Loading model from $modelPath")
 
             val file = java.io.File(modelPath)
@@ -308,12 +317,19 @@ class HealthDemoViewModel @Inject constructor(
                 throw IllegalStateException("Model file not found at $modelPath. Please select a model in Settings.")
             }
 
-            modelHandle = LlamaCpp.initModel(modelPath, N_CTX, N_GPU_LAYERS)
+            // Tune n_batch to device RAM to avoid OOM on budget phones
+            val nBatch = DeviceInfo.recommendedNBatch(appContext)
+            modelHandle = LlamaCpp.initModel(
+                modelPath = modelPath,
+                nCtx = N_CTX,
+                nGpuLayers = N_GPU_LAYERS,
+                nBatch = nBatch
+            )
 
             if (modelHandle == 0L) {
                 throw IllegalStateException("Failed to load model")
             }
-            Log.d(TAG, "MedGemma model loaded: handle=$modelHandle")
+            Log.d(TAG, "MedGemma model loaded: handle=$modelHandle, threads=${LlamaCpp.getThreadCount(modelHandle)}, nBatch=$nBatch")
         }
 
         // Collect streamed response
@@ -330,13 +346,14 @@ class HealthDemoViewModel @Inject constructor(
             // Load vision encoder if needed
             if (!visionLoaded) {
                 setStatus("Loading vision encoder...")
-                Log.d(TAG, "Loading vision encoder from $MMPROJ_PATH")
-                val mmprojFile = java.io.File(MMPROJ_PATH)
+                val mmprojPath = ModelAssetManager.getModelPath(appContext, ModelAssetManager.VISION_MODEL)
+                Log.d(TAG, "Loading vision encoder from $mmprojPath")
+                val mmprojFile = java.io.File(mmprojPath)
                 if (mmprojFile.exists()) {
-                    visionLoaded = LlamaCpp.initVision(modelHandle, MMPROJ_PATH)
+                    visionLoaded = LlamaCpp.initVision(modelHandle, mmprojPath)
                     Log.d(TAG, "Vision encoder loaded: $visionLoaded")
                 } else {
-                    Log.w(TAG, "mmproj not found at $MMPROJ_PATH")
+                    Log.w(TAG, "mmproj not found at $mmprojPath")
                 }
             }
 

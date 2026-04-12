@@ -20,6 +20,7 @@ import android.app.Application
 import android.os.Build
 import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepository
+import com.google.ai.edge.gallery.data.ModelAssetManager
 import com.google.ai.edge.gallery.ui.theme.ThemeSettings
 import com.google.ai.edge.gallery.analytics.AnalyticsSyncWorker
 import com.google.ai.edge.gallery.analytics.BatteryAnalytics
@@ -28,6 +29,9 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.analytics.FirebaseAnalytics
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class GalleryApplication : Application() {
@@ -39,6 +43,22 @@ class GalleryApplication : Application() {
 
     // Load saved theme.
     ThemeSettings.themeOverride.value = dataStoreRepository.readTheme()
+
+    // Extract bundled model assets on first launch (background thread)
+    if (!ModelAssetManager.isReady(this)) {
+      Log.d(TAG, "First launch — extracting bundled models...")
+      CoroutineScope(Dispatchers.IO).launch {
+        try {
+          ModelAssetManager.extractAll(this@GalleryApplication) { fileName, fileIndex, totalFiles, bytesWritten, totalBytes ->
+            val pct = (bytesWritten * 100 / totalBytes).toInt()
+            Log.d(TAG, "Extracting models: $fileName (${fileIndex + 1}/$totalFiles) — $pct%")
+          }
+          Log.d(TAG, "Model extraction complete")
+        } catch (e: Exception) {
+          Log.e(TAG, "Model extraction failed", e)
+        }
+      }
+    }
 
     // Firebase disabled — no valid google-services.json
     try {

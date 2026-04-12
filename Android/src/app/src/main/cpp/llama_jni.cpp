@@ -2,6 +2,8 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <fstream>
+#include <sstream>
 #include <android/log.h>
 
 #include "llama.h"
@@ -23,7 +25,72 @@ struct inference_context {
     float top_p;
     int n_past;               // number of tokens currently in the KV cache
     std::vector<llama_token> cache_tokens;  // token history matching KV cache contents
+    int n_threads;            // number of threads bound to perf cores
+    std::vector<int> perf_core_ids;  // CPU IDs of performance cores (for affinity)
 };
+
+// ─── CPU Topology Detection ──────────────────────────────────────────────────
+// Read each CPU's max frequency from /sys/devices/system/cpu/cpu*/cpufreq/cpuinfo_max_freq
+// and return the IDs of cores within 90% of the SoC max frequency.
+// On big.LITTLE chips this isolates the performance cluster (X1/X3/A76/A78/A715).
+// Falls back to all cores if cpufreq is unreadable.
+static std::vector<int> detect_perf_cores() {
+    std::vector<int> all_cores;
+    std::vector<long> max_freqs;
+    long soc_max_freq = 0;
+
+    // Try CPU 0..15 (covers all current Android SoCs)
+    for (int cpu_id = 0; cpu_id < 16; cpu_id++) {
+        char path[128];
+        snprintf(path, sizeof(path),
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpu_id);
+        std::ifstream f(path);
+        if (!f.is_open()) break;
+
+        long freq = 0;
+        f >> freq;
+        if (freq > 0) {
+            all_cores.push_back(cpu_id);
+            max_freqs.push_back(freq);
+            if (freq > soc_max_freq) soc_max_freq = freq;
+        }
+    }
+
+    if (all_cores.empty()) {
+        LOGE("Could not read cpufreq, returning empty perf core list");
+        return all_cores;
+    }
+
+    // Performance cores: within 90% of the highest frequency on the SoC
+    long threshold = (soc_max_freq * 9) / 10;
+    std::vector<int> perf_cores;
+    for (size_t i = 0; i < all_cores.size(); i++) {
+        if (max_freqs[i] >= threshold) {
+            perf_cores.push_back(all_cores[i]);
+        }
+    }
+
+    LOGI("CPU topology: %zu total cores, %zu perf cores (>=%ld kHz of %ld kHz max)",
+         all_cores.size(), perf_cores.size(), threshold, soc_max_freq);
+
+    // If only 1 perf core (Tensor G3 case), expand to top 2 cores anyway
+    // for better parallelism. A single thread leaves perf on the table.
+    if (perf_cores.size() < 2 && all_cores.size() >= 2) {
+        // Sort cores by frequency descending and pick top 2
+        std::vector<std::pair<long, int>> ranked;
+        for (size_t i = 0; i < all_cores.size(); i++) {
+            ranked.push_back({max_freqs[i], all_cores[i]});
+        }
+        std::sort(ranked.rbegin(), ranked.rend());
+        perf_cores.clear();
+        for (int i = 0; i < std::min((int)ranked.size(), 2); i++) {
+            perf_cores.push_back(ranked[i].second);
+        }
+        LOGI("Expanded perf cores to top 2 by frequency");
+    }
+
+    return perf_cores;
+}
 
 static void rebuild_sampler(inference_context * inf_ctx, float temperature, int top_k, float top_p) {
     if (inf_ctx->sampler) {
@@ -61,12 +128,22 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitModel(
     jstring modelPath,
     jint nCtx,
     jint nGpuLayers,
-    jint kvCacheType
+    jint kvCacheType,
+    jint nBatch
 ) {
     const char *path = env->GetStringUTFChars(modelPath, nullptr);
-    LOGI("initModel: %s, nCtx=%d, nGpuLayers=%d, kvCacheType=%d", path, nCtx, nGpuLayers, kvCacheType);
+    LOGI("initModel: %s, nCtx=%d, nGpuLayers=%d, kvCacheType=%d, nBatch=%d",
+         path, nCtx, nGpuLayers, kvCacheType, nBatch);
 
     llama_backend_init();
+
+    // ─── Detect performance cores for thread affinity ────────────────────────
+    // This is critical on hybrid CPUs (Tensor, big.LITTLE Snapdragon) where
+    // the default scheduler will migrate inference threads to LITTLE cores,
+    // pinning the whole batch to the slowest thread.
+    std::vector<int> perf_cores = detect_perf_cores();
+    int n_threads = std::max(1, (int)perf_cores.size());
+    LOGI("Using %d threads bound to perf cores", n_threads);
 
     auto model_params = llama_model_default_params();
     model_params.n_gpu_layers = nGpuLayers;
@@ -81,7 +158,9 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitModel(
 
     auto ctx_params = llama_context_default_params();
     ctx_params.n_ctx = nCtx;
-    ctx_params.n_batch = 2048;
+    ctx_params.n_batch = nBatch;
+    ctx_params.n_threads = n_threads;
+    ctx_params.n_threads_batch = n_threads;
     ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
 
     // TurboQuant KV cache compression (arXiv 2504.19874)
@@ -104,6 +183,33 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitModel(
     inf_ctx->mtmd_ctx = nullptr;
     inf_ctx->stop_requested = false;
     inf_ctx->n_past = 0;
+    inf_ctx->n_threads = n_threads;
+    inf_ctx->perf_core_ids = perf_cores;
+
+    // Bind a dedicated threadpool to the performance cores.
+    // This prevents the Linux scheduler from migrating threads to LITTLE cores,
+    // which is the dominant cause of poor inference performance on Tensor/Pixel.
+    auto tp_params = lm_ggml_threadpool_params_default(n_threads);
+    // Clear the default mask and set only our perf cores
+    for (int i = 0; i < LM_GGML_MAX_N_THREADS; i++) {
+        tp_params.cpumask[i] = false;
+    }
+    for (int cpu_id : perf_cores) {
+        if (cpu_id < LM_GGML_MAX_N_THREADS) {
+            tp_params.cpumask[cpu_id] = true;
+        }
+    }
+    tp_params.strict_cpu = true;  // hard pin to these cores
+    tp_params.prio = LM_GGML_SCHED_PRIO_HIGH;
+    tp_params.n_threads = n_threads;
+
+    auto * tp = lm_ggml_threadpool_new(&tp_params);
+    if (tp) {
+        llama_attach_threadpool(ctx, tp, nullptr);
+        LOGI("Threadpool attached: %d threads on perf cores", n_threads);
+    } else {
+        LOGE("Failed to create threadpool, falling back to default");
+    }
 
     // Default sampler params
     rebuild_sampler(inf_ctx, 0.7f, 40, 0.9f);
@@ -202,7 +308,8 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
     LOGI("Prompt: %d tokens, cached: %d reused, %d new to process", n_tokens, n_keep, n_new);
 
     // Evaluate only the NEW tokens (skip the common prefix already in KV cache)
-    const int n_batch = 2048;
+    // Use the same batch size we configured at init (matches ctx_params.n_batch)
+    const int n_batch = llama_n_batch(inf_ctx->ctx);
     for (int i = n_keep; i < n_tokens; i += n_batch) {
         int n_eval = std::min(n_batch, n_tokens - i);
         llama_batch batch = llama_batch_get_one(tokens.data() + i, n_eval);
@@ -319,6 +426,32 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeGetCacheTokenCount(
     return inf_ctx->n_past;
 }
 
+JNIEXPORT jint JNICALL
+Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeGetThreadCount(
+    JNIEnv * /* env */,
+    jobject /* this */,
+    jlong handle
+) {
+    auto * inf_ctx = reinterpret_cast<inference_context *>(handle);
+    if (!inf_ctx) return 0;
+    return inf_ctx->n_threads;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeGetPerfCoreInfo(
+    JNIEnv *env,
+    jobject /* this */
+) {
+    // Standalone helper that doesn't require an active model handle
+    std::vector<int> perf_cores = detect_perf_cores();
+    std::string result;
+    for (size_t i = 0; i < perf_cores.size(); i++) {
+        if (i > 0) result += ",";
+        result += std::to_string(perf_cores[i]);
+    }
+    return env->NewStringUTF(result.c_str());
+}
+
 JNIEXPORT void JNICALL
 Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeReleaseModel(
     JNIEnv * /* env */,
@@ -370,7 +503,8 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitVision(
 
     auto params = mtmd_context_params_default();
     params.use_gpu = false;  // CPU only for now
-    params.n_threads = 4;
+    // Use the same thread count as the LLM (already bound to perf cores)
+    params.n_threads = inf_ctx->n_threads > 0 ? inf_ctx->n_threads : 4;
 
     inf_ctx->mtmd_ctx = mtmd_init_from_file(path, inf_ctx->model, params);
     env->ReleaseStringUTFChars(mmprojPath, path);

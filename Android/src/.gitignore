@@ -30,6 +30,11 @@
 .cxx
 local.properties
 
+# Bundled model assets (too large for git — download separately)
+app/src/main/assets/*.gguf
+app/src/main/assets/*.gguf.part*
+app/src/main/assets/*.onnx
+
 # Gradle build/cache artifacts (binary, machine-specific — never commit)
 gradle/caches/
 gradle/daemon/

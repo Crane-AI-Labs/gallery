@@ -18,8 +18,10 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 private const val TAG = "MedAsrEngine"
+// Defaults are overridden at runtime via setModelPath/setTokenizerPath
+// using paths from ModelAssetManager
 private const val DEFAULT_MODEL_PATH = "/data/local/tmp/medasr-fp32.onnx"
-private const val TOKENIZER_PATH = "/data/local/tmp/medasr-tokenizer.json"
+private const val DEFAULT_TOKENIZER_PATH = "/data/local/tmp/medasr-tokenizer.json"
 
 // From processor_config.json
 private const val SAMPLE_RATE = 16000
@@ -40,7 +42,7 @@ object MedAsrEngine {
     private var melFilterbank: Array<FloatArray>? = null
 
     private var modelPath: String = DEFAULT_MODEL_PATH
-    private var tokenizerPath: String = TOKENIZER_PATH
+    private var tokenizerPath: String = DEFAULT_TOKENIZER_PATH
 
     fun isAvailable(): Boolean {
         return File(modelPath).exists() && File(tokenizerPath).exists()
@@ -55,7 +57,7 @@ object MedAsrEngine {
     }
 
     fun setTokenizerPath(path: String?) {
-        val newPath = path ?: TOKENIZER_PATH
+        val newPath = path ?: DEFAULT_TOKENIZER_PATH
         if (vocabulary.isNotEmpty() && tokenizerPath != newPath) {
             vocabulary = emptyList()
         }

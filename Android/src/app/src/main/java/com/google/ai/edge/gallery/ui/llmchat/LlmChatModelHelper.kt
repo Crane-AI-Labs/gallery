@@ -71,8 +71,12 @@ object LlmChatModelHelper {
     try {
       val nGpuLayers = 99  // offload as many layers as possible to GPU
       val nCtx = maxTokens.coerceIn(512, 4096)
+      val nBatch = com.google.ai.edge.gallery.llm.DeviceInfo.recommendedNBatch(context)
 
-      val handle = LlamaCpp.initModel(modelPath, nCtx, nGpuLayers)
+      Log.d(TAG, "Device: ${com.google.ai.edge.gallery.llm.DeviceInfo.summary(context)}")
+      Log.d(TAG, "Native variant: ${LlamaCpp.getLoadedVariant()}, perf cores: ${LlamaCpp.getPerfCoreInfo()}")
+
+      val handle = LlamaCpp.initModel(modelPath, nCtx, nGpuLayers, nBatch = nBatch)
       if (handle == 0L) {
         onDone("Failed to load model: $modelPath")
         return
