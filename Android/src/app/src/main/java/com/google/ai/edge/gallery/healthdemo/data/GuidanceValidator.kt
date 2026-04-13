@@ -1,18 +1,18 @@
 package com.google.ai.edge.gallery.healthdemo.data
 
 import android.util.Log
-import org.json.JSONObject
 
 private const val TAG = "GuidanceValidator"
 
 /**
- * Validates and parses MedGemma output into safe, structured HealthGuidance.
+ * Validates and parses MedGemma XML output into safe, structured HealthGuidance.
  *
  * Guardrails:
- * 1. JSON schema compliance — must have required fields
+ * 1. XML tag extraction — parses <r><t>...<rf>...</rf></r> format
  * 2. Triage category validation — must be one of the predefined categories
  * 3. Confidence threshold — auto-refer if "low" or parsing fails
- * 4. Fallback for malformed output — extract what we can, flag for review
+ * 4. L2 dosage safety — strips drug names/dosages from output (post-processing)
+ * 5. Fallback for malformed output — extract what we can, flag for review
  */
 object GuidanceValidator {
 
@@ -24,113 +24,221 @@ object GuidanceValidator {
 
     /**
      * Parse and validate a raw LLM response into HealthGuidance.
+     * Supports both XML format (primary) and JSON format (legacy fallback).
      * Always returns a result — never throws.
      */
     fun parseAndValidate(rawResponse: String): ParseResult {
         val warnings = mutableListOf<String>()
 
-        // Try to extract JSON
-        val jsonStr = extractJson(rawResponse)
-        if (jsonStr == null) {
-            Log.w(TAG, "No JSON found in response")
-            return ParseResult(
-                guidance = buildUnstructuredFallback(rawResponse),
-                wasValid = false,
-                validationWarnings = listOf("Could not extract JSON from model response"),
-            )
+        // Try XML first (primary format)
+        val xmlResult = parseXml(rawResponse)
+        if (xmlResult != null) {
+            return buildResult(xmlResult, rawResponse, warnings)
         }
 
-        val json: JSONObject
-        try {
-            json = JSONObject(jsonStr)
+        // Fall back to JSON (legacy support)
+        val jsonResult = parseJson(rawResponse)
+        if (jsonResult != null) {
+            warnings.add("Response was JSON (legacy format), not XML")
+            return buildResult(jsonResult, rawResponse, warnings)
+        }
+
+        Log.w(TAG, "No XML or JSON found in response")
+        return ParseResult(
+            guidance = buildUnstructuredFallback(rawResponse),
+            wasValid = false,
+            validationWarnings = listOf("Could not extract structured data from model response"),
+        )
+    }
+
+    private data class RawFields(
+        val triage: String,
+        val condition: String,
+        val confidence: String,
+        val treatment: List<String>,
+        val nextSteps: List<String>,
+        val redFlags: List<String>,
+    )
+
+    // ─── XML Parsing ─────────────────────────────────────────────────────────────
+
+    private fun parseXml(response: String): RawFields? {
+        // Look for <r>...</r> or just the individual tags
+        val text = response.trim()
+
+        val triage = extractTag(text, "t") ?: return null
+        val condition = extractTag(text, "c") ?: ""
+        val confidence = extractTag(text, "cf") ?: "low"
+        val treatment = extractTag(text, "tx")?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+        val nextSteps = extractTag(text, "ns")?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+        val redFlags = extractTag(text, "rf")?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+
+        return RawFields(triage, condition, confidence, treatment, nextSteps, redFlags)
+    }
+
+    private fun extractTag(text: String, tag: String): String? {
+        val pattern = Regex("<$tag>(.*?)</$tag>", RegexOption.DOT_MATCHES_ALL)
+        return pattern.find(text)?.groupValues?.get(1)?.trim()
+    }
+
+    // ─── JSON Parsing (legacy fallback) ──────────────────────────────────────────
+
+    private fun parseJson(response: String): RawFields? {
+        val jsonStr = extractJsonBlock(response) ?: return null
+        val json = try {
+            org.json.JSONObject(jsonStr)
         } catch (e: Exception) {
-            Log.w(TAG, "Invalid JSON: ${e.message}")
-            return ParseResult(
-                guidance = buildUnstructuredFallback(rawResponse),
-                wasValid = false,
-                validationWarnings = listOf("Invalid JSON in model response"),
-            )
+            return null
         }
 
-        // Validate triage category
-        val rawTriage = json.optString("triage", "")
-        val triage = validateTriageCategory(rawTriage)
-        if (triage != rawTriage) {
-            warnings.add("Triage category '$rawTriage' was not recognized, defaulting to '$triage'")
+        return RawFields(
+            triage = json.optString("triage", ""),
+            condition = json.optString("condition", ""),
+            confidence = json.optString("confidence", "low"),
+            treatment = extractJsonArray(json, "treatment"),
+            nextSteps = extractJsonArray(json, "next_steps"),
+            redFlags = extractJsonArray(json, "red_flags"),
+        )
+    }
+
+    private fun extractJsonBlock(text: String): String? {
+        val start = text.indexOf('{')
+        if (start < 0) return null
+        var depth = 0
+        for (i in start until text.length) {
+            when (text[i]) {
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return text.substring(start, i + 1)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun extractJsonArray(json: org.json.JSONObject, key: String): List<String> {
+        val arr = json.optJSONArray(key) ?: return emptyList()
+        val result = mutableListOf<String>()
+        for (i in 0 until arr.length()) {
+            val item = arr.optString(i, "").trim()
+            if (item.isNotBlank()) result.add(item)
+        }
+        return result
+    }
+
+    // ─── Validation & Safety ─────────────────────────────────────────────────────
+
+    private fun buildResult(fields: RawFields, rawResponse: String, warnings: MutableList<String>): ParseResult {
+        // Validate triage
+        val triage = validateTriageCategory(fields.triage)
+        if (triage != fields.triage.trim()) {
+            warnings.add("Triage '${fields.triage}' normalized to '$triage'")
         }
 
         // Validate confidence
-        val rawConfidence = json.optString("confidence", "low")
-        val confidence = validateConfidence(rawConfidence)
-        if (confidence != rawConfidence) {
-            warnings.add("Confidence '$rawConfidence' was not recognized, defaulting to '$confidence'")
+        val confidence = validateConfidence(fields.confidence)
+        if (confidence != fields.confidence.trim().lowercase()) {
+            warnings.add("Confidence '${fields.confidence}' normalized to '$confidence'")
         }
 
-        // Auto-escalate: if confidence is low, bump triage to at least "Urgent clinic visit"
+        // Auto-escalate low confidence home care
         val finalTriage = if (confidence == "low" && triage == "Home care") {
-            warnings.add("Low confidence with 'Home care' triage auto-escalated to 'Urgent clinic visit'")
+            warnings.add("Low confidence + Home care auto-escalated to Urgent clinic visit")
             "Urgent clinic visit"
-        } else {
-            triage
-        }
+        } else triage
 
-        // Extract condition
-        val condition = json.optString("condition", "Assessment required")
-        if (condition.isBlank() || condition.length < 3) {
-            warnings.add("Condition field was empty or too short")
-        }
-
-        // Extract treatment steps
-        val treatment = extractStringArray(json, "treatment")
-        if (treatment.isEmpty()) {
-            warnings.add("No treatment steps provided")
-        }
-
-        // Extract next steps
-        val nextSteps = extractStringArray(json, "next_steps")
-        if (nextSteps.isEmpty()) {
-            warnings.add("No next steps provided")
-        }
-
-        // Extract red flags
-        val redFlags = extractStringArray(json, "red_flags")
-
-        // Build disclaimer based on confidence
-        val disclaimer = buildDisclaimer(confidence, warnings.isNotEmpty())
+        // L2 dosage safety: strip drug names and dosages from all text fields
+        val safeTreatment = fields.treatment.map { sanitizeDosage(it, warnings) }
+        val safeNextSteps = fields.nextSteps.map { sanitizeDosage(it, warnings) }
+        val safeCondition = sanitizeDosage(fields.condition, warnings)
 
         val guidance = HealthGuidance(
-            possibleCondition = condition,
-            suggestedTreatment = treatment.ifEmpty {
+            possibleCondition = safeCondition.ifBlank { "Assessment required" },
+            suggestedTreatment = safeTreatment.filter { it.isNotBlank() }.ifEmpty {
                 listOf("Perform full clinical assessment", "Monitor vital signs")
             },
-            recommendedNextSteps = nextSteps.ifEmpty {
+            recommendedNextSteps = safeNextSteps.filter { it.isNotBlank() }.ifEmpty {
                 listOf("Monitor patient and refer if symptoms worsen")
             },
-            disclaimer = disclaimer,
+            disclaimer = buildDisclaimer(confidence, warnings.isNotEmpty()),
             triageLevel = finalTriage,
             confidence = confidence,
-            redFlags = redFlags,
+            redFlags = fields.redFlags,
         )
 
-        return ParseResult(
-            guidance = guidance,
-            wasValid = warnings.isEmpty(),
-            validationWarnings = warnings,
-        )
+        return ParseResult(guidance, warnings.isEmpty(), warnings)
     }
+
+    // ─── L2 Dosage Safety (post-processing) ──────────────────────────────────────
+    // These regexes catch drug names and dosages that the model generates despite
+    // being told not to. Defense in depth — the model's training handles most cases,
+    // these catch the rest.
+
+    private val UCG_REPLACEMENT = "Refer to Uganda Clinical Guidelines 2023"
+
+    /** L2-051: Numeric dose patterns (500mg, 10mg/kg, 2 tablets, etc.) */
+    private val NUMERIC_DOSE_PATTERN = Regex(
+        """\b\d+(?:\.\d+)?\s*(?:mg|mcg|microgram|milligram|gram|ml|millilit(?:re|er)|iu|units?|mmol|mEq|tabs?|tablets?|caps?|capsules?|sachets?)(?:\s*/\s*kg)?(?:\s*(?:per\s+|/\s*)(?:day|hr|hour|dose|kg))?\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** L2-050: Drug names from UCG 2023 formulary (top offenders from testing) */
+    private val DRUG_NAME_PATTERN = Regex(
+        """\b(?:amoxicillin|amoxycillin|ampicillin|artesunate|artemether|azithromycin|ceftriaxone|chloramphenicol|ciprofloxacin|cloxacillin|cotrimoxazole|co-trimoxazole|dexamethasone|diazepam|diclofenac|doxycycline|erythromycin|fluconazole|gentamicin|gentamycin|hydrocortisone|ibuprofen|lumefantrine|mebendazole|albendazole|metformin|metoclopramide|metronidazole|morphine|nitrofurantoin|nystatin|omeprazole|paracetamol|penicillin|phenobarbital|prednisolone|quinine|salbutamol|sulfamethoxazole|trimethoprim|vancomycin|warfarin)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * Strip drug names and numeric dosages from a text field.
+     * Replaces the offending sentence with a UCG reference.
+     */
+    private fun sanitizeDosage(text: String, warnings: MutableList<String>): String {
+        var result = text
+
+        if (DRUG_NAME_PATTERN.containsMatchIn(result)) {
+            val match = DRUG_NAME_PATTERN.find(result)!!.value
+            warnings.add("L2-050 BLOCK: drug name '$match' stripped")
+            // Replace the entire sentence containing the drug name
+            result = replaceSentence(result, DRUG_NAME_PATTERN, UCG_REPLACEMENT)
+        }
+
+        if (NUMERIC_DOSE_PATTERN.containsMatchIn(result)) {
+            val match = NUMERIC_DOSE_PATTERN.find(result)!!.value
+            warnings.add("L2-051 BLOCK: numeric dose '$match' stripped")
+            result = replaceSentence(result, NUMERIC_DOSE_PATTERN, UCG_REPLACEMENT)
+        }
+
+        return result
+    }
+
+    /** Replace the sentence containing a regex match, preserving the rest of the text. */
+    private fun replaceSentence(text: String, pattern: Regex, replacement: String): String {
+        // If the whole text is one sentence (no period/pipe separators), replace entirely
+        if (!text.contains("|") && !text.contains(". ")) {
+            return replacement
+        }
+        // Split by pipe (XML format) or period, replace offending segments
+        val separator = if (text.contains("|")) "|" else ". "
+        val parts = text.split(separator).map { part ->
+            if (pattern.containsMatchIn(part)) replacement else part
+        }.distinct() // Remove duplicate replacements
+        return parts.joinToString(separator)
+    }
+
+    // ─── Validators ──────────────────────────────────────────────────────────────
 
     private fun validateTriageCategory(raw: String): String {
         val normalized = raw.trim().lowercase()
         for (category in ClinicalPrompt.TRIAGE_CATEGORIES) {
             if (category.lowercase() == normalized) return category
         }
-        // Fuzzy match
         return when {
             normalized.contains("emergency") || normalized.contains("refer") -> "Emergency referral"
             normalized.contains("urgent") -> "Urgent clinic visit"
             normalized.contains("routine") -> "Routine care"
             normalized.contains("home") -> "Home care"
-            else -> "Urgent clinic visit" // default to caution
+            else -> "Urgent clinic visit"
         }
     }
 
@@ -139,7 +247,7 @@ object GuidanceValidator {
             "high" -> "high"
             "medium", "moderate" -> "medium"
             "low" -> "low"
-            else -> "low" // unknown confidence = assume low
+            else -> "low"
         }
     }
 
@@ -159,44 +267,13 @@ object GuidanceValidator {
             possibleCondition = "Refer: unable to parse AI assessment",
             triageLevel = "Urgent clinic visit",
             confidence = "low",
-            suggestedTreatment = if (lines.isNotEmpty()) {
-                lines
-            } else {
-                listOf("Perform full clinical assessment", "Monitor vital signs")
-            },
+            suggestedTreatment = if (lines.isNotEmpty()) lines
+                else listOf("Perform full clinical assessment", "Monitor vital signs"),
             recommendedNextSteps = listOf(
                 "Refer to clinician. AI output could not be validated",
                 "Monitor patient and reassess in 1-2 hours"
             ),
             disclaimer = "AI response could not be validated. Use clinical judgment and refer if uncertain."
         )
-    }
-
-    private fun extractStringArray(json: JSONObject, key: String): List<String> {
-        val arr = json.optJSONArray(key) ?: return emptyList()
-        val result = mutableListOf<String>()
-        for (i in 0 until arr.length()) {
-            val item = arr.optString(i, "").trim()
-            if (item.isNotBlank()) {
-                result.add(item)
-            }
-        }
-        return result
-    }
-
-    private fun extractJson(text: String): String? {
-        val start = text.indexOf('{')
-        if (start < 0) return null
-        var depth = 0
-        for (i in start until text.length) {
-            when (text[i]) {
-                '{' -> depth++
-                '}' -> {
-                    depth--
-                    if (depth == 0) return text.substring(start, i + 1)
-                }
-            }
-        }
-        return null
     }
 }

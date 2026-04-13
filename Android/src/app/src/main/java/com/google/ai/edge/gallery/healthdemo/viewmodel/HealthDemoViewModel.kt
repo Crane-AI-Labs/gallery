@@ -264,7 +264,9 @@ class HealthDemoViewModel @Inject constructor(
 
     /**
      * Run MedGemma inference to generate clinical guidance.
-     * No fallback — if inference fails, show the error to the user.
+     * Retries once on parse failure (common on cold KV cache).
+     * Never shows fabricated fallback data — if both attempts fail,
+     * shows an honest error asking the health worker to try again.
      */
     fun getGuidance() {
         val state = _uiState.value
@@ -275,12 +277,22 @@ class HealthDemoViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             val startMs = System.currentTimeMillis()
             try {
-                val guidance = runMedGemmaInference(state)
+                val result = runMedGemmaInferenceWithRetry(state)
                 val durationMs = System.currentTimeMillis() - startMs
-                HealthDemoAnalytics.logInferenceCompleted(
-                    appContext, durationMs, hasImage = state.capturedImageBytes != null
-                )
-                _uiState.update { it.copy(guidance = guidance, savedAssessment = null, isProcessing = false) }
+                if (result != null) {
+                    HealthDemoAnalytics.logInferenceCompleted(
+                        appContext, durationMs, hasImage = state.capturedImageBytes != null
+                    )
+                    _uiState.update { it.copy(guidance = result, savedAssessment = null, isProcessing = false) }
+                } else {
+                    HealthDemoAnalytics.logInferenceFailed("parse_failed_after_retry")
+                    _uiState.update {
+                        it.copy(
+                            isProcessing = false,
+                            inferenceError = "Could not generate a valid assessment. Please try again."
+                        )
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "MedGemma inference failed", e)
                 HealthDemoAnalytics.logInferenceFailed(e.message ?: "unknown")
@@ -294,11 +306,45 @@ class HealthDemoViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Attempt inference, retry once if the output can't be parsed.
+     * Returns null if both attempts fail — never returns fabricated data.
+     */
+    private fun runMedGemmaInferenceWithRetry(state: HealthDemoUiState): HealthGuidance? {
+        // First attempt
+        val firstResult = runMedGemmaInference(state)
+        val firstParse = GuidanceValidator.parseAndValidate(firstResult)
+        if (firstParse.wasValid || firstParse.guidance.triageLevel != "Urgent clinic visit"
+            || firstParse.guidance.possibleCondition != "Refer: unable to parse AI assessment") {
+            // Parsed successfully (possibly with warnings, but we got real data)
+            return firstParse.guidance
+        }
+
+        // First attempt produced unparseable output — retry
+        Log.w(TAG, "First inference attempt unparseable, retrying...")
+        setStatus("Retrying...")
+
+        // Clear KV cache to get a fresh start
+        if (modelHandle != 0L) {
+            LlamaCpp.clearContext(modelHandle)
+        }
+
+        val secondResult = runMedGemmaInference(state)
+        val secondParse = GuidanceValidator.parseAndValidate(secondResult)
+        if (secondParse.guidance.possibleCondition == "Refer: unable to parse AI assessment") {
+            // Both attempts failed — return null, don't show fabricated data
+            Log.e(TAG, "Both inference attempts failed to produce parseable output")
+            return null
+        }
+
+        return secondParse.guidance
+    }
+
     private fun setStatus(status: String) {
         _uiState.update { it.copy(processingStatus = status) }
     }
 
-    private fun runMedGemmaInference(state: HealthDemoUiState): HealthGuidance {
+    private fun runMedGemmaInference(state: HealthDemoUiState): String {
         if (!LlamaCpp.isAvailable()) {
             throw IllegalStateException("llama.cpp native library not available")
         }
@@ -407,12 +453,7 @@ class HealthDemoViewModel @Inject constructor(
         val response = responseBuilder.toString().trim()
         Log.d(TAG, "Inference complete. Response length: ${response.length}")
         Log.d(TAG, "Response: $response")
-
-        val result = GuidanceValidator.parseAndValidate(response)
-        if (!result.wasValid) {
-            Log.w(TAG, "Validation warnings: ${result.validationWarnings}")
-        }
-        return result.guidance
+        return response
     }
 
     private fun formatVitals(vitalSigns: VitalSigns): String {

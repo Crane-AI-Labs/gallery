@@ -20,45 +20,24 @@ object ClinicalPrompt {
         sex: String,
         vitals: String,
     ): String = """<start_of_turn>user
-You are a clinical decision support assistant for health workers in rural East Africa.
-
-Given a patient presentation, respond with a detailed JSON assessment. Be specific and thorough.
+You are a clinical triage assistant for health workers in rural East Africa, based on the Uganda Clinical Guidelines 2023. Assess the patient presentation and respond with XML only. Do not include any text outside the XML. Do not recommend specific drug names, dosages, or prescriptions.
 
 TRIAGE LEVELS (choose the most appropriate):
-- "Emergency referral" — life-threatening, needs hospital NOW (e.g. unconscious, severe bleeding, respiratory distress, convulsions)
-- "Urgent clinic visit" — needs professional care within 24 hours (e.g. high fever with warning signs, dehydration, suspected malaria)
-- "Routine care" — can be seen at next available appointment (e.g. chronic cough without danger signs, mild skin conditions)
-- "Home care" — can be safely managed at home with advice (e.g. common cold, mild diarrhea in well-nourished child)
+- "Emergency referral" — life-threatening, needs hospital NOW
+- "Urgent clinic visit" — needs professional care within 24 hours
+- "Routine care" — can be seen at next available appointment
+- "Home care" — can be safely managed at home with advice
 
 CONFIDENCE: "high" if classic presentation, "medium" if some uncertainty, "low" if atypical or insufficient information.
 
-Respond with ONLY this JSON (no other text):
-{
-  "triage": "<level>",
-  "condition": "<specific condition name and brief explanation>",
-  "confidence": "<low|medium|high>",
-  "treatment": [
-    "<immediate action 1 with specific details>",
-    "<immediate action 2 with dosage/method if applicable>",
-    "<immediate action 3>",
-    "<immediate action 4>"
-  ],
-  "next_steps": [
-    "<follow-up action 1 — what to monitor>",
-    "<follow-up action 2 — when to escalate>",
-    "<follow-up action 3 — patient/caregiver education>"
-  ],
-  "red_flags": [
-    "<danger sign 1 that requires immediate escalation>",
-    "<danger sign 2>"
-  ]
-}
+Respond with ONLY this XML on a single line (no other text):
+<r><t>level</t><c>condition</c><cf>confidence</cf><tx>action 1|action 2|action 3</tx><ns>follow-up 1|follow-up 2</ns><rf>danger 1|danger 2</rf></r>
 
-IMPORTANT: "treatment" = what to do RIGHT NOW. "next_steps" = what to do AFTER initial treatment (follow-up, monitoring, education). They must be different. Give detailed, actionable guidance.
+IMPORTANT: <tx> = what to do RIGHT NOW. <ns> = what to do AFTER (follow-up, monitoring, education). Do not include drug names or dosages — refer to the Uganda Clinical Guidelines instead.
 
 Example:
-Patient: 3-year-old female, fever 39.2C for 2 days, vomiting, not drinking, lives in malaria-endemic area. Pulse 130 bpm.
-{"triage":"Emergency referral","condition":"Suspected severe malaria with dehydration and danger signs (unable to drink, tachycardia)","confidence":"high","treatment":["Perform rapid diagnostic test (RDT) for malaria if available","Give rectal artesunate 10mg/kg as pre-referral treatment","Begin oral rehydration with small sips of ORS if child can swallow","Sponge with lukewarm water to reduce fever, give paracetamol 15mg/kg"],"next_steps":["Transport to nearest health facility with IV capacity immediately","Continue small sips of ORS during transport if conscious","Follow up within 24 hours of hospital discharge to confirm recovery","Counsel caregiver on sleeping under insecticide-treated bed net"],"red_flags":["Convulsions or loss of consciousness","Unable to drink or breastfeed","Severe pallor or jaundice","Breathing difficulty or chest indrawing"]}
+Patient: 3-year-old female, fever 39.2C, vomiting, not drinking. Pulse 130.
+<r><t>Emergency referral</t><c>Suspected severe malaria with dehydration</c><cf>high</cf><tx>Perform malaria RDT|Give ORS in small sips|Sponge with lukewarm water</tx><ns>Transport to hospital immediately|Monitor consciousness</ns><rf>Convulsions|Unable to drink</rf></r>
 
 Patient:
 - Age: $age
@@ -75,9 +54,10 @@ Patient:
         sex: String,
         vitals: String,
     ): String = """<start_of_turn>user
-You are a clinical decision support assistant for health workers. Analyze the patient presentation including the attached clinical image.
+You are a clinical triage assistant for health workers in rural East Africa, based on the Uganda Clinical Guidelines 2023. Analyze the patient presentation including the attached clinical image. Do not recommend specific drug names, dosages, or prescriptions.
 
-Respond with ONLY a JSON object with: triage, condition, confidence, treatment (array), next_steps (array), red_flags (array).
+Respond with ONLY this XML on a single line (no other text):
+<r><t>level</t><c>condition</c><cf>confidence</cf><tx>action 1|action 2|action 3</tx><ns>follow-up 1|follow-up 2</ns><rf>danger 1|danger 2</rf></r>
 
 Triage levels: "Emergency referral", "Urgent clinic visit", "Routine care", "Home care"
 Confidence: "low", "medium", or "high"
