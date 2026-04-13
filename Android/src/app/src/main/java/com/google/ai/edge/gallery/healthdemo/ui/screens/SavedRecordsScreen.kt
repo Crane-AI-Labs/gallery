@@ -129,7 +129,7 @@ fun SavedRecordsScreen(
                 EmptyMsg("No saved cases yet.")
             } else {
                 LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                    items(assessments) { assessment ->
+                    items(assessments, key = { it.id }) { assessment ->
                         Spacer(modifier = Modifier.height(10.dp))
                         CaseCard(
                             assessment = assessment,
@@ -146,7 +146,7 @@ fun SavedRecordsScreen(
                 EmptyMsg("No paused consultations.")
             } else {
                 LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                    items(pausedList) { paused ->
+                    items(pausedList, key = { it.id }) { paused ->
                         Spacer(modifier = Modifier.height(10.dp))
                         PausedCaseCard(paused = paused, onResume = { onResumePaused(paused.id) })
                     }

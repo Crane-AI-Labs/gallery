@@ -56,11 +56,13 @@ Patient:
     ): String = """<start_of_turn>user
 You are a clinical triage assistant for health workers in rural East Africa, based on the Uganda Clinical Guidelines 2023. Analyze the patient presentation including the attached clinical image. Do not recommend specific drug names, dosages, or prescriptions.
 
-Respond with ONLY this XML on a single line (no other text):
-<r><t>level</t><c>condition</c><cf>confidence</cf><tx>action 1|action 2|action 3</tx><ns>follow-up 1|follow-up 2</ns><rf>danger 1|danger 2</rf></r>
+Respond with XML using tags: <r> (root), <t> (triage level), <c> (condition), <cf> (confidence), <tx> (treatment actions, pipe-separated), <ns> (next steps, pipe-separated), <rf> (red flags, pipe-separated).
 
-Triage levels: "Emergency referral", "Urgent clinic visit", "Routine care", "Home care"
-Confidence: "low", "medium", or "high"
+Triage levels: Emergency referral, Urgent clinic visit, Routine care, Home care.
+
+Example:
+Patient: 3-year-old female, fever 39.2C, vomiting, not drinking. Pulse 130.
+<r><t>Emergency referral</t><c>Suspected severe malaria with dehydration</c><cf>high</cf><tx>Perform malaria RDT|Give ORS in small sips|Tepid sponging for fever</tx><ns>Transport to hospital immediately|Monitor consciousness</ns><rf>Convulsions|Unable to drink</rf></r>
 
 Clinical image:
 $MEDIA_MARKER

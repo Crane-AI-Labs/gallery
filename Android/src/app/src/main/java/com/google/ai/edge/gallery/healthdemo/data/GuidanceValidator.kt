@@ -27,20 +27,23 @@ object GuidanceValidator {
      * Supports both XML format (primary) and JSON format (legacy fallback).
      * Always returns a result — never throws.
      */
-    fun parseAndValidate(rawResponse: String): ParseResult {
+    fun parseAndValidate(
+        rawResponse: String,
+        confirmedSigns: Set<String> = emptySet()
+    ): ParseResult {
         val warnings = mutableListOf<String>()
 
         // Try XML first (primary format)
         val xmlResult = parseXml(rawResponse)
         if (xmlResult != null) {
-            return buildResult(xmlResult, rawResponse, warnings)
+            return buildResult(xmlResult, rawResponse, warnings, confirmedSigns)
         }
 
         // Fall back to JSON (legacy support)
         val jsonResult = parseJson(rawResponse)
         if (jsonResult != null) {
             warnings.add("Response was JSON (legacy format), not XML")
-            return buildResult(jsonResult, rawResponse, warnings)
+            return buildResult(jsonResult, rawResponse, warnings, confirmedSigns)
         }
 
         Log.w(TAG, "No XML or JSON found in response")
@@ -129,7 +132,12 @@ object GuidanceValidator {
 
     // ─── Validation & Safety ─────────────────────────────────────────────────────
 
-    private fun buildResult(fields: RawFields, rawResponse: String, warnings: MutableList<String>): ParseResult {
+    private fun buildResult(
+        fields: RawFields,
+        rawResponse: String,
+        warnings: MutableList<String>,
+        confirmedSigns: Set<String> = emptySet()
+    ): ParseResult {
         // Validate triage
         val triage = validateTriageCategory(fields.triage)
         if (triage != fields.triage.trim()) {
@@ -142,16 +150,37 @@ object GuidanceValidator {
             warnings.add("Confidence '${fields.confidence}' normalized to '$confidence'")
         }
 
-        // Auto-escalate low confidence home care
-        val finalTriage = if (confidence == "low" && triage == "Home care") {
-            warnings.add("Low confidence + Home care auto-escalated to Urgent clinic visit")
-            "Urgent clinic visit"
-        } else triage
+        // CRITICAL SAFETY: If health worker confirmed any danger sign,
+        // force Emergency referral regardless of what the model says.
+        // A human clinical observation overrides AI output.
+        val hasConfirmedDangerSign = confirmedSigns.any { it in CRITICAL_DANGER_SIGNS }
 
-        // L2 dosage safety: strip drug names and dosages from all text fields
-        val safeTreatment = fields.treatment.map { sanitizeDosage(it, warnings) }
-        val safeNextSteps = fields.nextSteps.map { sanitizeDosage(it, warnings) }
-        val safeCondition = sanitizeDosage(fields.condition, warnings)
+        val finalTriage = when {
+            hasConfirmedDangerSign -> {
+                val signs = confirmedSigns.filter { it in CRITICAL_DANGER_SIGNS }
+                warnings.add("SAFETY OVERRIDE: Confirmed danger sign(s) [${signs.joinToString()}] → Emergency referral")
+                "Emergency referral"
+            }
+            confidence == "low" && triage == "Home care" -> {
+                warnings.add("Low confidence + Home care auto-escalated to Urgent clinic visit")
+                "Urgent clinic visit"
+            }
+            confidence == "low" && triage == "Routine care" -> {
+                warnings.add("Low confidence + Routine care auto-escalated to Urgent clinic visit")
+                "Urgent clinic visit"
+            }
+            else -> triage
+        }
+
+        // L2 dosage safety: keep drug names (health workers need them),
+        // strip only numeric dosages (the dangerous part), clean up empty results
+        val safeTreatment = fields.treatment
+            .map { stripDosageOnly(it, warnings) }
+            .filter { it.isNotBlank() && it.length > 3 }
+        val safeNextSteps = fields.nextSteps
+            .map { stripDosageOnly(it, warnings) }
+            .filter { it.isNotBlank() && it.length > 3 }
+        val safeCondition = fields.condition
 
         val guidance = HealthGuidance(
             possibleCondition = safeCondition.ifBlank { "Assessment required" },
@@ -190,40 +219,31 @@ object GuidanceValidator {
     )
 
     /**
-     * Strip drug names and numeric dosages from a text field.
-     * Replaces the offending sentence with a UCG reference.
+     * Strip numeric dosages only — keep drug names (health workers need to know
+     * WHAT medication, just not HOW MUCH). Replace dosage with "as per UCG guidelines".
+     *
+     * Examples:
+     *   "Give amoxicillin 500mg twice daily" → "Give amoxicillin as per UCG guidelines"
+     *   "Administer artesunate 10mg/kg IV" → "Administer artesunate as per UCG guidelines"
+     *   "Perform malaria RDT" → "Perform malaria RDT" (no change)
+     *   "Give ORS in small sips" → "Give ORS in small sips" (no change, ORS has no dose)
      */
-    private fun sanitizeDosage(text: String, warnings: MutableList<String>): String {
-        var result = text
+    private fun stripDosageOnly(text: String, warnings: MutableList<String>): String {
+        if (!NUMERIC_DOSE_PATTERN.containsMatchIn(text)) return text
 
-        if (DRUG_NAME_PATTERN.containsMatchIn(result)) {
-            val match = DRUG_NAME_PATTERN.find(result)!!.value
-            warnings.add("L2-050 BLOCK: drug name '$match' stripped")
-            // Replace the entire sentence containing the drug name
-            result = replaceSentence(result, DRUG_NAME_PATTERN, UCG_REPLACEMENT)
-        }
+        val match = NUMERIC_DOSE_PATTERN.find(text)!!.value
+        warnings.add("L2-051: dosage '$match' replaced with UCG reference")
 
-        if (NUMERIC_DOSE_PATTERN.containsMatchIn(result)) {
-            val match = NUMERIC_DOSE_PATTERN.find(result)!!.value
-            warnings.add("L2-051 BLOCK: numeric dose '$match' stripped")
-            result = replaceSentence(result, NUMERIC_DOSE_PATTERN, UCG_REPLACEMENT)
-        }
+        // Replace the dosage and any trailing frequency (e.g. "twice daily", "every 6 hours", "for 5 days")
+        var result = NUMERIC_DOSE_PATTERN.replace(text, "as per UCG guidelines")
+
+        // Clean up: remove duplicate spaces, trailing frequency phrases that are now orphaned
+        result = result.replace(Regex("as per UCG guidelines\\s+(twice|thrice|once|three times|four times)\\s+(daily|a day)"), "as per UCG guidelines")
+        result = result.replace(Regex("as per UCG guidelines\\s+every\\s+\\d+\\s+hours?"), "as per UCG guidelines")
+        result = result.replace(Regex("as per UCG guidelines\\s+for\\s+\\d+\\s+(days?|weeks?)"), "as per UCG guidelines")
+        result = result.replace(Regex("\\s{2,}"), " ").trim()
 
         return result
-    }
-
-    /** Replace the sentence containing a regex match, preserving the rest of the text. */
-    private fun replaceSentence(text: String, pattern: Regex, replacement: String): String {
-        // If the whole text is one sentence (no period/pipe separators), replace entirely
-        if (!text.contains("|") && !text.contains(". ")) {
-            return replacement
-        }
-        // Split by pipe (XML format) or period, replace offending segments
-        val separator = if (text.contains("|")) "|" else ". "
-        val parts = text.split(separator).map { part ->
-            if (pattern.containsMatchIn(part)) replacement else part
-        }.distinct() // Remove duplicate replacements
-        return parts.joinToString(separator)
     }
 
     // ─── Validators ──────────────────────────────────────────────────────────────
@@ -262,18 +282,21 @@ object GuidanceValidator {
     }
 
     private fun buildUnstructuredFallback(rawResponse: String): HealthGuidance {
-        val lines = rawResponse.lines().filter { it.isNotBlank() }.take(5)
+        // SAFETY: Never show raw LLM output as clinical advice.
+        // If we can't parse the response, show only safe generic instructions.
         return HealthGuidance(
             possibleCondition = "Refer: unable to parse AI assessment",
             triageLevel = "Urgent clinic visit",
             confidence = "low",
-            suggestedTreatment = if (lines.isNotEmpty()) lines
-                else listOf("Perform full clinical assessment", "Monitor vital signs"),
-            recommendedNextSteps = listOf(
-                "Refer to clinician. AI output could not be validated",
-                "Monitor patient and reassess in 1-2 hours"
+            suggestedTreatment = listOf(
+                "Perform full clinical assessment using standard protocols",
+                "Use the Uganda Clinical Guidelines 2023 for treatment decisions"
             ),
-            disclaimer = "AI response could not be validated. Use clinical judgment and refer if uncertain."
+            recommendedNextSteps = listOf(
+                "Refer to a clinician for proper evaluation",
+                "Monitor patient closely and reassess"
+            ),
+            disclaimer = "The AI could not generate a valid assessment. Use your clinical judgment and refer if uncertain."
         )
     }
 }

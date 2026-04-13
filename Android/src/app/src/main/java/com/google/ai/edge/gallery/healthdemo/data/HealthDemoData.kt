@@ -102,8 +102,7 @@ fun ageGroupFromInput(years: Int, months: Int): AgeRange = when {
 
 enum class Sex(val label: String) {
     Female("Female"),
-    Male("Male"),
-    Other("Other")
+    Male("Male")
 }
 
 data class VitalSigns(
@@ -241,5 +240,10 @@ data class SavedAssessment(
     val confirmedSigns: Set<String> = emptySet(),
     val guidance: HealthGuidance,
     val clinicianConfirmation: ClinicianConfirmation? = null,
-    val referralInfo: ReferralInfo? = null
+    val referralInfo: ReferralInfo? = null,
+    // Location — rounded to 2 decimal places (~1.1km) for privacy
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val locationAccuracyMeters: Float? = null,
+    val district: String? = null
 )

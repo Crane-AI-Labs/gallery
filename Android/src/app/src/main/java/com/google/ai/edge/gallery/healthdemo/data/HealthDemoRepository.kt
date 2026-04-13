@@ -1,47 +1,151 @@
 package com.google.ai.edge.gallery.healthdemo.data
 
-import kotlinx.coroutines.flow.MutableStateFlow
+import android.content.Context
+import android.util.Log
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+
+private const val TAG = "HealthDemoRepository"
 
 /**
- * In-memory repository for saved and paused patient assessments.
+ * Room-backed repository for saved and paused patient assessments.
+ * Data survives app close, process death, and device restart.
+ * Syncs to Firestore when online. On app launch, any records saved
+ * while offline are pushed to Firestore automatically.
  */
-class HealthDemoRepository {
+class HealthDemoRepository(private val context: Context) {
 
-    private val _savedAssessments = MutableStateFlow<List<SavedAssessment>>(emptyList())
-    val savedAssessments: StateFlow<List<SavedAssessment>> = _savedAssessments.asStateFlow()
+    private val db = HealthDatabase.getInstance(context)
+    private val assessmentDao = db.assessmentDao()
+    private val pausedDao = db.pausedDao()
 
-    private val _pausedConsultations = MutableStateFlow<List<PausedConsultation>>(emptyList())
-    val pausedConsultations: StateFlow<List<PausedConsultation>> = _pausedConsultations.asStateFlow()
+    // SupervisorJob: one failed coroutine doesn't cancel siblings
+    // ExceptionHandler: log but don't crash for fire-and-forget operations
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "Repository coroutine failed", throwable)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler)
+
+    val savedAssessments: StateFlow<List<SavedAssessment>> =
+        assessmentDao.getAll()
+            .map { entities -> entities.map { it.toDomain() } }
+            .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    val pausedConsultations: StateFlow<List<PausedConsultation>> =
+        pausedDao.getAll()
+            .map { entities -> entities.map { it.toDomain() } }
+            .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    init {
+        // Sync after Room has emitted its first real data.
+        // Wait for the first emission from Room (up to 5 seconds), then sync.
+        scope.launch {
+            // Wait for Room to actually emit data (or timeout if DB is empty)
+            withTimeoutOrNull(5000) {
+                assessmentDao.getAll().first()
+            }
+            syncAllToCloud()
+        }
+    }
 
     fun save(assessment: SavedAssessment) {
-        _savedAssessments.value = listOf(assessment) + _savedAssessments.value
+        scope.launch {
+            assessmentDao.insert(assessment.toEntity())
+            Log.d(TAG, "Saved assessment ${assessment.id}")
+            if (FirestoreSync.isOnline(context)) {
+                FirestoreSync.syncAssessment(context, assessment)
+            }
+        }
     }
 
     fun updateConfirmation(id: String, confirmation: ClinicianConfirmation, referral: ReferralInfo?) {
-        _savedAssessments.value = _savedAssessments.value.map { a ->
-            if (a.id == id) a.copy(clinicianConfirmation = confirmation, referralInfo = referral) else a
+        scope.launch {
+            val entity = assessmentDao.getById(id) ?: return@launch
+            val updated = entity.copy(clinicianConfirmation = confirmation, referralInfo = referral)
+            assessmentDao.update(updated)
+            Log.d(TAG, "Updated confirmation for $id")
+            if (FirestoreSync.isOnline(context)) {
+                FirestoreSync.syncAssessment(context, updated.toDomain())
+            }
         }
     }
 
-    fun getById(id: String): SavedAssessment? =
-        _savedAssessments.value.find { it.id == id }
+    /** Query Room directly — not the potentially stale StateFlow cache. */
+    suspend fun getById(id: String): SavedAssessment? =
+        assessmentDao.getById(id)?.toDomain()
+
+    /** Non-suspend version for UI code that can't suspend. Uses StateFlow cache. */
+    fun getByIdCached(id: String): SavedAssessment? =
+        savedAssessments.value.find { it.id == id }
 
     fun savePaused(consultation: PausedConsultation) {
-        _pausedConsultations.value = listOf(consultation) + _pausedConsultations.value
+        scope.launch {
+            pausedDao.insert(consultation.toEntity())
+            Log.d(TAG, "Saved paused consultation ${consultation.id}")
+            if (FirestoreSync.isOnline(context)) {
+                FirestoreSync.syncPaused(context, consultation)
+            }
+        }
     }
 
     fun removePaused(id: String) {
-        _pausedConsultations.value = _pausedConsultations.value.filter { it.id != id }
+        scope.launch {
+            pausedDao.deleteById(id)
+            Log.d(TAG, "Removed paused consultation $id")
+            FirestoreSync.removePausedFromCloud(id)
+        }
     }
 
     fun getPausedById(id: String): PausedConsultation? =
-        _pausedConsultations.value.find { it.id == id }
+        pausedConsultations.value.find { it.id == id }
 
     fun updateReferral(id: String, referral: ReferralInfo) {
-        _savedAssessments.value = _savedAssessments.value.map { a ->
-            if (a.id == id) a.copy(referralInfo = referral) else a
+        scope.launch {
+            val entity = assessmentDao.getById(id) ?: return@launch
+            val updated = entity.copy(referralInfo = referral)
+            assessmentDao.update(updated)
+            Log.d(TAG, "Updated referral for $id")
+            if (FirestoreSync.isOnline(context)) {
+                FirestoreSync.syncAssessment(context, updated.toDomain())
+            }
         }
+    }
+
+    /**
+     * Push all local records to Firestore. Called on app launch to catch
+     * any records saved while offline. Firestore merge mode means
+     * re-syncing an already-synced record is safe (idempotent).
+     */
+    private suspend fun syncAllToCloud() {
+        if (!FirestoreSync.isOnline(context)) {
+            Log.d(TAG, "Offline — skipping cloud sync")
+            return
+        }
+
+        Log.d(TAG, "Syncing all local records to Firestore...")
+        FirestoreSync.syncDeviceDiagnostics(context)
+
+        // Read directly from Room DAO, not the StateFlow cache (which may be stale)
+        val allAssessments = assessmentDao.getAll().first().map { it.toDomain() }
+        val allPaused = pausedDao.getAll().first().map { it.toDomain() }
+
+        allAssessments.forEach { assessment ->
+            FirestoreSync.syncAssessment(context, assessment)
+        }
+
+        allPaused.forEach { paused ->
+            FirestoreSync.syncPaused(context, paused)
+        }
+
+        Log.d(TAG, "Cloud sync complete: ${allAssessments.size} assessments, ${allPaused.size} paused")
     }
 }

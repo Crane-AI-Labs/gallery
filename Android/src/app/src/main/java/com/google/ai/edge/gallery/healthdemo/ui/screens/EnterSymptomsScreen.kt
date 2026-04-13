@@ -101,14 +101,45 @@ fun EnterSymptomsScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted -> audioPermissionGranted = granted }
 
+    // Location permission
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> /* result doesn't matter — location is best-effort */ }
+
     LaunchedEffect(Unit) {
         audioPermissionGranted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
+
+        // Request location permission once (non-blocking, best-effort)
+        if (!com.google.ai.edge.gallery.healthdemo.data.LocationCapture.hasPermission(context)) {
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        } else {
+            // Permission already granted — start capturing early
+            viewModel.startLocationCapture()
+        }
     }
 
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+    // Image capture — two separate contracts (camera + gallery)
+    // because no Android API reliably combines both in a single native UI on Samsung
+    var cameraImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var showImageSheet by remember { mutableStateOf(false) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && cameraImageUri != null) {
+            try {
+                val bytes = context.contentResolver.openInputStream(cameraImageUri!!)?.readBytes()
+                if (bytes != null) viewModel.setCapturedImage(bytes)
+            } catch (e: Exception) {
+                android.util.Log.e("EnterSymptoms", "Failed to read camera image", e)
+            }
+        }
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
             try {
@@ -117,6 +148,14 @@ fun EnterSymptomsScreen(
             } catch (e: Exception) {
                 android.util.Log.e("EnterSymptoms", "Failed to read image", e)
             }
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted && cameraImageUri != null) {
+            cameraLauncher.launch(cameraImageUri!!)
         }
     }
 
@@ -250,7 +289,7 @@ fun EnterSymptomsScreen(
                         }
                     }
                     OutlinedButton(
-                        onClick = { imagePickerLauncher.launch("image/*") },
+                        onClick = { showImageSheet = true },
                         shape = RoundedCornerShape(8.dp),
                         border = BorderStroke(1.dp, if (hasImage) Color(0xFF2E7D32) else Color(0xFFE0E0E0)),
                         modifier = Modifier.weight(1f)
@@ -383,6 +422,36 @@ fun EnterSymptomsScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // Gender
+                Text("Gender", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    com.google.ai.edge.gallery.healthdemo.data.Sex.entries.forEach { sex ->
+                        val selected = uiState.sex == sex
+                        OutlinedButton(
+                            onClick = { viewModel.setSex(sex) },
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(
+                                1.5.dp,
+                                if (selected) NavyBlue else Color(0xFFE0E0E0)
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (selected) Color(0xFFF0F1FA) else Color.White
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                sex.label,
+                                fontSize = 13.sp,
+                                color = if (selected) NavyBlue else Color(0xFF444746),
+                                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 // Vitals (Optional)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Vitals", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
@@ -501,18 +570,36 @@ fun EnterSymptomsScreen(
                 }
             }
 
-            Button(
-                onClick = { viewModel.getGuidance() },
-                enabled = canContinue && !uiState.isProcessing,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = NavyBlue, disabledContainerColor = Color(0xFF9E9E9E))
-            ) {
-                if (uiState.isProcessing) {
+            if (uiState.isProcessing) {
+                // Show processing state with cancel option
+                Button(
+                    onClick = {},
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(disabledContainerColor = Color(0xFF9E9E9E))
+                ) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(uiState.processingStatus.ifEmpty { "Processing..." }, fontSize = 14.sp, color = Color.White)
-                } else {
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { viewModel.cancelInference() },
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, DangerRed)
+                ) {
+                    Text("Cancel", fontSize = 14.sp, color = DangerRed)
+                }
+            } else {
+                Button(
+                    onClick = { viewModel.getGuidance() },
+                    enabled = canContinue,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = NavyBlue, disabledContainerColor = Color(0xFF9E9E9E))
+                ) {
                     Text("Generate Guidance", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
                 }
             }
@@ -527,6 +614,74 @@ fun EnterSymptomsScreen(
     }
 
     // ── Danger/Warning Sign Sheet ──────────────────────────────────────────────
+    // ── Image Source Sheet ─────────────────────────────────────────────────────
+    if (showImageSheet) {
+        val imageSheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { showImageSheet = false },
+            sheetState = imageSheetState,
+            containerColor = Color.White
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp)
+            ) {
+                Text(
+                    "Add Image",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1F1F1F),
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
+                )
+
+                // Camera option
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showImageSheet = false
+                            val photoFile = java.io.File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
+                            cameraImageUri = androidx.core.content.FileProvider.getUriForFile(
+                                context, "${context.packageName}.provider", photoFile
+                            )
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                cameraLauncher.launch(cameraImageUri!!)
+                            } else {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        }
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = NavyBlue, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Take Photo", fontSize = 16.sp, color = Color(0xFF1F1F1F))
+                }
+
+                // Gallery option
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showImageSheet = false
+                            galleryLauncher.launch(
+                                androidx.activity.result.PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.ImageOnly
+                                )
+                            )
+                        }
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = null, tint = NavyBlue, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Choose from Gallery", fontSize = 16.sp, color = Color(0xFF1F1F1F))
+                }
+            }
+        }
+    }
+
     val pendingSign = uiState.pendingSignAlert
     if (pendingSign != null) {
         ModalBottomSheet(
@@ -561,10 +716,11 @@ private fun SignCheckRow(
     checkColor: Color,
     onCheck: (Boolean) -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCheck(!checked) }
+            .clickable { focusManager.clearFocus(); onCheck(!checked) }
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

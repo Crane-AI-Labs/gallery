@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -332,16 +333,20 @@ fun GuidanceScreen(
         // Bottom actions
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
             if (isSaved) {
+                val context = LocalContext.current
+                val isOnline = com.google.ai.edge.gallery.healthdemo.data.FirestoreSync.isOnline(context)
+                val syncText = if (isOnline) "Case saved and synced." else "Case saved locally. Will sync when connected."
+                val syncColor = if (isOnline) Color(0xFF2E7D32) else Color(0xFFE65100)
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFE8F5E9),
+                    color = if (isOnline) Color(0xFFE8F5E9) else Color(0xFFFFF3E0),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Case saved locally. Will sync when connected.",
+                        text = syncText,
                         modifier = Modifier.padding(12.dp),
                         fontSize = 13.sp,
-                        color = Color(0xFF2E7D32)
+                        color = syncColor
                     )
                 }
                 Spacer(modifier = Modifier.height(10.dp))
@@ -350,63 +355,63 @@ fun GuidanceScreen(
             // Primary: confirm outcome
             Button(
                 onClick = onConfirmOutcome,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
             ) {
-                Text("Confirm Outcome", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                Text("Confirm Outcome", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Refer Patient — deliberate clinical decision when no further help possible
-            OutlinedButton(
-                onClick = { showReferralSheet = true },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, NavyBlue)
-            ) {
-                Icon(Icons.Default.Send, contentDescription = null, tint = NavyBlue, modifier = androidx.compose.ui.Modifier.size(16.dp))
+            // Secondary actions in a compact row
+            Row(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { showReferralSheet = true },
+                    modifier = Modifier.weight(1f).height(42.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NavyBlue),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = "Refer", tint = NavyBlue, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Refer", fontSize = 13.sp, color = NavyBlue)
+                }
+
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Refer Patient", fontSize = 15.sp, color = NavyBlue, fontWeight = FontWeight.Medium)
-            }
 
-            Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { showPauseSheet = true },
+                    modifier = Modifier.weight(1f).height(42.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, OrangeGold),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+                ) {
+                    Icon(Icons.Default.Pause, contentDescription = "Pause", tint = OrangeGold, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Pause", fontSize = 13.sp, color = OrangeGold)
+                }
 
-            // Pause Patient
-            OutlinedButton(
-                onClick = { showPauseSheet = true },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, OrangeGold)
-            ) {
-                Icon(Icons.Default.Pause, contentDescription = null, tint = OrangeGold, modifier = androidx.compose.ui.Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Pause Patient", fontSize = 15.sp, color = OrangeGold, fontWeight = FontWeight.Medium)
+
+                OutlinedButton(
+                    onClick = { showNewAssessmentDialog = true },
+                    modifier = Modifier.weight(1f).height(42.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NavyBlue),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+                ) {
+                    Text("New", fontSize = 13.sp, color = NavyBlue)
+                }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Create New Assessment (outlined)
-            OutlinedButton(
-                onClick = {
-                    viewModel.resetAssessment()
-                    onCreateNew()
-                },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, NavyBlue)
-            ) {
-                Text("Create New Assessment", fontSize = 15.sp, color = NavyBlue, fontWeight = FontWeight.Medium)
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             TextButton(
                 onClick = onReturnHome,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             ) {
-                Text("Return To Home", color = NavyBlue, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text("Return To Home", color = NavyBlue, fontSize = 13.sp)
             }
         }
     }

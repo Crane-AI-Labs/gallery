@@ -21,12 +21,14 @@ import android.os.Build
 import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.data.ModelAssetManager
+import com.google.ai.edge.gallery.healthdemo.data.FirestoreSync
 import com.google.ai.edge.gallery.ui.theme.ThemeSettings
 import com.google.ai.edge.gallery.analytics.AnalyticsSyncWorker
 import com.google.ai.edge.gallery.analytics.BatteryAnalytics
 import com.google.ai.edge.gallery.analytics.ConnectivitySyncScheduler
 import com.google.firebase.FirebaseApp
 import com.google.firebase.analytics.FirebaseAnalytics
+import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -67,6 +69,18 @@ class GalleryApplication : Application() {
         Log.d(TAG, "Emulator detected — setting Firebase analytics to minimal dispatch interval")
         FirebaseAnalytics.getInstance(this).setAnalyticsCollectionEnabled(true)
       }
+      // Anonymous auth — each device gets a unique UID for Firestore security
+      val auth = FirebaseAuth.getInstance()
+      if (auth.currentUser == null) {
+        auth.signInAnonymously().addOnSuccessListener {
+          Log.d(TAG, "Anonymous auth: uid=${it.user?.uid}")
+        }.addOnFailureListener {
+          Log.w(TAG, "Anonymous auth failed: ${it.message}")
+        }
+      } else {
+        Log.d(TAG, "Already authenticated: uid=${auth.currentUser?.uid}")
+      }
+
       BatteryAnalytics.logBatteryEvent(this, trigger = "app_launch")
       AnalyticsSyncWorker.schedulePeriodic(this)
       ConnectivitySyncScheduler.register(this)

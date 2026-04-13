@@ -16,7 +16,7 @@
 
 plugins {
   alias(libs.plugins.android.application)
-  alias(libs.plugins.google.services) apply false
+  alias(libs.plugins.google.services)
   alias(libs.plugins.kotlin.android)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.kotlin.serialization)
@@ -24,6 +24,13 @@ plugins {
   alias(libs.plugins.hilt.application)
   alias(libs.plugins.oss.licenses)
   kotlin("kapt")
+}
+
+kapt {
+  arguments {
+    // Room schema export for migration validation
+    arg("room.schemaLocation", "$projectDir/schemas")
+  }
 }
 
 android {
@@ -60,8 +67,10 @@ android {
 
   buildTypes {
     release {
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      // TODO: Create a proper release keystore before production deployment
       signingConfig = signingConfigs.getByName("debug")
     }
   }
@@ -122,7 +131,15 @@ dependencies {
   implementation(platform(libs.firebase.bom))
   implementation(libs.firebase.analytics)
   implementation(libs.firebase.perf)
+  implementation("com.google.firebase:firebase-firestore-ktx")
+  implementation("com.google.firebase:firebase-auth-ktx")
+  implementation("com.google.android.gms:play-services-location:21.3.0")
   implementation(libs.androidx.exifinterface)
+  implementation(libs.room.runtime)
+  implementation(libs.room.ktx)
+  implementation("net.zetetic:sqlcipher-android:4.6.1@aar")
+  implementation("androidx.sqlite:sqlite-ktx:2.4.0")
+  kapt(libs.room.compiler)
   kapt(libs.hilt.android.compiler)
   testImplementation(libs.junit)
   androidTestImplementation(libs.androidx.junit)

@@ -43,10 +43,10 @@ object HealthDemoDestinations {
 @Composable
 fun HealthDemoNavGraph(
     navController: NavHostController = rememberNavController(),
-    repository: HealthDemoRepository = remember { HealthDemoRepository() },
     viewModel: HealthDemoViewModel
 ) {
     val context = LocalContext.current
+    val repository = remember { HealthDemoRepository(context.applicationContext) }
 
     // Restore saved role on launch
     val savedRole = remember {

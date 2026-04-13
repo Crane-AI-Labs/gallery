@@ -242,7 +242,7 @@ fun AssessmentDetailsScreen(
     repository: HealthDemoRepository,
     onNavigateBack: () -> Unit
 ) {
-    val assessment = repository.getById(assessmentId)
+    val assessment = repository.getByIdCached(assessmentId)
 
     if (assessment == null) {
         Column(

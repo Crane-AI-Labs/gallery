@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import android.content.Context
 import com.google.ai.edge.gallery.analytics.HealthDemoAnalytics
 import com.google.ai.edge.gallery.data.ModelAssetManager
+import com.google.ai.edge.gallery.healthdemo.data.CapturedLocation
+import com.google.ai.edge.gallery.healthdemo.data.LocationCapture
 import com.google.ai.edge.gallery.healthdemo.data.AppSettings
 import com.google.ai.edge.gallery.healthdemo.data.ClinicianConfirmation
 import com.google.ai.edge.gallery.healthdemo.data.PauseReason
@@ -57,6 +59,7 @@ data class HealthDemoUiState(
     val sex: Sex? = null,
     val vitalSigns: VitalSigns = VitalSigns(),
     val capturedImageBytes: ByteArray? = null,
+    val capturedLocation: CapturedLocation? = null,
 
     // Signs & Symptoms
     val checkedSigns: Set<String> = emptySet(),
@@ -109,6 +112,17 @@ class HealthDemoViewModel @Inject constructor(
 
     fun setCustomRole(text: String) {
         _uiState.update { it.copy(customRole = text) }
+    }
+
+    /** Call when entering the symptoms screen — starts GPS early so it's ready by inference time */
+    fun startLocationCapture() {
+        if (_uiState.value.capturedLocation != null) return  // already captured
+        viewModelScope.launch(Dispatchers.IO) {
+            val location = LocationCapture.capture(appContext)
+            if (location != null) {
+                _uiState.update { it.copy(capturedLocation = location) }
+            }
+        }
     }
 
     fun setSymptoms(symptoms: String) {
@@ -208,7 +222,7 @@ class HealthDemoViewModel @Inject constructor(
                             isTranscribing = false,
                         )
                     }
-                    Log.d(TAG, "Transcription result: $transcript")
+                    Log.d(TAG, "Transcription complete: ${transcript.length} chars")
                 } else {
                     _uiState.update { it.copy(isTranscribing = false) }
                     Log.w(TAG, "Empty transcription result")
@@ -269,12 +283,15 @@ class HealthDemoViewModel @Inject constructor(
      * shows an honest error asking the health worker to try again.
      */
     fun getGuidance() {
+        // Prevent concurrent inference — native code is not thread-safe
+        if (_uiState.value.isProcessing) return
+
         val state = _uiState.value
         _uiState.update { it.copy(isProcessing = true, inferenceError = null) }
 
         HealthDemoAnalytics.logAssessmentStarted(appContext)
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO.limitedParallelism(1)) {
             val startMs = System.currentTimeMillis()
             try {
                 val result = runMedGemmaInferenceWithRetry(state)
@@ -299,7 +316,7 @@ class HealthDemoViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isProcessing = false,
-                        inferenceError = "Inference failed: ${e.message ?: "Unknown error"}. Please try again."
+                        inferenceError = "Unable to generate assessment. Please try again."
                     )
                 }
             }
@@ -311,32 +328,40 @@ class HealthDemoViewModel @Inject constructor(
      * Returns null if both attempts fail — never returns fabricated data.
      */
     private fun runMedGemmaInferenceWithRetry(state: HealthDemoUiState): HealthGuidance? {
+        val confirmedSigns = state.confirmedSigns
+
         // First attempt
         val firstResult = runMedGemmaInference(state)
-        val firstParse = GuidanceValidator.parseAndValidate(firstResult)
-        if (firstParse.wasValid || firstParse.guidance.triageLevel != "Urgent clinic visit"
-            || firstParse.guidance.possibleCondition != "Refer: unable to parse AI assessment") {
-            // Parsed successfully (possibly with warnings, but we got real data)
+        // Safe diagnostic: log format signature without PHI
+        val firstPrefix = firstResult.take(40).replace(Regex("[a-zA-Z]{4,}"), "***")
+        Log.d(TAG, "Attempt 1: ${firstResult.length} chars, starts with: $firstPrefix")
+        val firstParse = GuidanceValidator.parseAndValidate(firstResult, confirmedSigns)
+
+        // Check if we got real clinical data (not the fallback placeholder)
+        if (firstParse.wasValid && firstParse.guidance.possibleCondition != "Refer: unable to parse AI assessment") {
+            Log.d(TAG, "First attempt succeeded, triage: ${firstParse.guidance.triageLevel}")
             return firstParse.guidance
         }
 
-        // First attempt produced unparseable output — retry
-        Log.w(TAG, "First inference attempt unparseable, retrying...")
+        // First attempt produced unparseable output — retry once
+        Log.w(TAG, "First attempt unparseable (warnings: ${firstParse.validationWarnings}), retrying with cleared cache")
         setStatus("Retrying...")
 
-        // Clear KV cache to get a fresh start
         if (modelHandle != 0L) {
             LlamaCpp.clearContext(modelHandle)
         }
 
         val secondResult = runMedGemmaInference(state)
-        val secondParse = GuidanceValidator.parseAndValidate(secondResult)
-        if (secondParse.guidance.possibleCondition == "Refer: unable to parse AI assessment") {
-            // Both attempts failed — return null, don't show fabricated data
-            Log.e(TAG, "Both inference attempts failed to produce parseable output")
+        val secondPrefix = secondResult.take(40).replace(Regex("[a-zA-Z]{4,}"), "***")
+        Log.d(TAG, "Attempt 2: ${secondResult.length} chars, starts with: $secondPrefix")
+        val secondParse = GuidanceValidator.parseAndValidate(secondResult, confirmedSigns)
+
+        if (!secondParse.wasValid || secondParse.guidance.possibleCondition == "Refer: unable to parse AI assessment") {
+            Log.e(TAG, "Both attempts failed (warnings: ${secondParse.validationWarnings})")
             return null
         }
 
+        Log.d(TAG, "Second attempt succeeded, triage: ${secondParse.guidance.triageLevel}")
         return secondParse.guidance
     }
 
@@ -391,7 +416,7 @@ class HealthDemoViewModel @Inject constructor(
         if (hasImage) {
             // Load vision encoder if needed
             if (!visionLoaded) {
-                setStatus("Loading vision encoder...")
+                setStatus("Loading vision...")
                 val mmprojPath = ModelAssetManager.getModelPath(appContext, ModelAssetManager.VISION_MODEL)
                 Log.d(TAG, "Loading vision encoder from $mmprojPath")
                 val mmprojFile = java.io.File(mmprojPath)
@@ -442,7 +467,7 @@ class HealthDemoViewModel @Inject constructor(
             // Text-only inference
             setStatus("Generating assessment...")
             val prompt = buildClinicalPrompt(state)
-            Log.d(TAG, "Running text inference (${prompt.length} chars)")
+            Log.d(TAG, "Running text inference (${prompt.length} chars prompt)")
             LlamaCpp.completion(
                 handle = modelHandle, prompt = prompt, nPredict = 1024,
                 temperature = 0.5f, topK = 40, topP = 0.9f,
@@ -451,8 +476,7 @@ class HealthDemoViewModel @Inject constructor(
         }
 
         val response = responseBuilder.toString().trim()
-        Log.d(TAG, "Inference complete. Response length: ${response.length}")
-        Log.d(TAG, "Response: $response")
+        Log.d(TAG, "Inference complete: ${response.length} chars")
         return response
     }
 
@@ -486,7 +510,10 @@ class HealthDemoViewModel @Inject constructor(
             sex = state.sex,
             vitalSigns = state.vitalSigns,
             confirmedSigns = state.confirmedSigns,
-            guidance = state.guidance!!
+            guidance = state.guidance!!,
+            latitude = state.capturedLocation?.latitude,
+            longitude = state.capturedLocation?.longitude,
+            locationAccuracyMeters = state.capturedLocation?.accuracyMeters
         )
     }
 
@@ -565,6 +592,15 @@ class HealthDemoViewModel @Inject constructor(
         val currentRole = _uiState.value.role
         val currentCustomRole = _uiState.value.customRole
         _uiState.value = HealthDemoUiState(role = currentRole, customRole = currentCustomRole)
+    }
+
+    /** Cancel a running inference. The health worker can tap this if generation takes too long. */
+    fun cancelInference() {
+        if (modelHandle != 0L) {
+            LlamaCpp.stopCompletion(modelHandle)
+            Log.d(TAG, "Inference cancelled by user")
+        }
+        _uiState.update { it.copy(isProcessing = false, processingStatus = "") }
     }
 
     fun clearGuidance() {
