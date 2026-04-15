@@ -2,8 +2,11 @@ package com.google.ai.edge.gallery.healthdemo.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -116,6 +120,22 @@ fun EnterSymptomsScreen(
                 if (bytes != null) viewModel.setCapturedImage(bytes)
             } catch (e: Exception) {
                 android.util.Log.e("EnterSymptoms", "Failed to read image", e)
+            }
+        }
+    }
+
+    // BUG-04: camera capture support
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            val uri = cameraUri ?: return@rememberLauncherForActivityResult
+            try {
+                val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+                if (bytes != null) viewModel.setCapturedImage(bytes)
+            } catch (e: Exception) {
+                android.util.Log.e("EnterSymptoms", "Failed to read camera image", e)
             }
         }
     }
@@ -250,14 +270,44 @@ fun EnterSymptomsScreen(
                         }
                     }
                     OutlinedButton(
+                        onClick = {
+                            val photoFile = File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
+                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", photoFile)
+                            cameraUri = uri
+                            cameraLauncher.launch(uri)
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color(0xFF444746), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Take Photo", fontSize = 13.sp, color = Color(0xFF1F1F1F))
+                    }
+                }
+
+                if (hasImage) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFE8F5E9), modifier = Modifier.fillMaxWidth()) {
+                        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Image attached", fontSize = 13.sp, color = Color(0xFF2E7D32))
+                        }
+                    }
+                }
+
+                // Gallery row
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
                         onClick = { imagePickerLauncher.launch("image/*") },
                         shape = RoundedCornerShape(8.dp),
                         border = BorderStroke(1.dp, if (hasImage) Color(0xFF2E7D32) else Color(0xFFE0E0E0)),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = if (hasImage) Color(0xFF2E7D32) else Color(0xFF444746), modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Photo, contentDescription = null, tint = if (hasImage) Color(0xFF2E7D32) else Color(0xFF444746), modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (hasImage) "Image Added" else "Add Image", fontSize = 13.sp, color = if (hasImage) Color(0xFF2E7D32) else Color(0xFF1F1F1F))
+                        Text("Upload from Gallery", fontSize = 13.sp, color = if (hasImage) Color(0xFF2E7D32) else Color(0xFF1F1F1F))
                     }
                 }
 
@@ -561,10 +611,14 @@ private fun SignCheckRow(
     checkColor: Color,
     onCheck: (Boolean) -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCheck(!checked) }
+            .clickable {
+                focusManager.clearFocus() // BUG-09: dismiss keyboard on checkbox tap
+                onCheck(!checked)
+            }
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

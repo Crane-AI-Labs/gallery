@@ -19,6 +19,10 @@ class HealthDemoRepository {
         _savedAssessments.value = listOf(assessment) + _savedAssessments.value
     }
 
+    fun remove(id: String) {
+        _savedAssessments.value = _savedAssessments.value.filter { it.id != id }
+    }
+
     fun updateConfirmation(id: String, confirmation: ClinicianConfirmation, referral: ReferralInfo?) {
         _savedAssessments.value = _savedAssessments.value.map { a ->
             if (a.id == id) a.copy(clinicianConfirmation = confirmation, referralInfo = referral) else a

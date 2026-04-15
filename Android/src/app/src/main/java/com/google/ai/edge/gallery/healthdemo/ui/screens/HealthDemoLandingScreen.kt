@@ -74,6 +74,7 @@ fun HealthDemoLandingScreen(
 
     var showRoleSheet by remember { mutableStateOf(false) }
     var showResumeSheet by remember { mutableStateOf(false) }
+    var showInProgressDialog by remember { mutableStateOf(false) }
     var selectedPausedId by remember { mutableStateOf<String?>(null) }
     var rememberRole by remember { mutableStateOf(AppSettings.getRole(context) != null) }
 
@@ -161,10 +162,11 @@ fun HealthDemoLandingScreen(
         Button(
             onClick = {
                 val uiState = viewModel.uiState.value
-                if (uiState.role != null) {
-                    onStartAssessment()
-                } else {
-                    showRoleSheet = true
+                val hasInProgress = uiState.symptoms.isNotBlank() || uiState.age != null
+                when {
+                    hasInProgress -> showInProgressDialog = true
+                    uiState.role != null -> onStartAssessment()
+                    else -> showRoleSheet = true
                 }
             },
             modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -217,6 +219,44 @@ fun HealthDemoLandingScreen(
         }
 
         Spacer(modifier = Modifier.weight(1f))
+    }
+
+    // ── BUG-06: In-progress assessment gate dialog ─────────────────────────────
+    if (showInProgressDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showInProgressDialog = false },
+            title = {
+                Text("Assessment in progress", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1F1F1F))
+            },
+            text = {
+                Text("You have an unfinished assessment. What would you like to do?", color = Color(0xFF444746), fontSize = 14.sp)
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showInProgressDialog = false
+                        onStartAssessment()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
+                ) { Text("Continue current assessment", color = Color.White) }
+            },
+            dismissButton = {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = {
+                        viewModel.resetAssessment()
+                        showInProgressDialog = false
+                        val uiState = viewModel.uiState.value
+                        if (uiState.role != null) onStartAssessment() else showRoleSheet = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("Discard and start new", color = NavyBlue) }
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(12.dp)
+        )
     }
 
     // ── Select Role Sheet ──────────────────────────────────────────────────────

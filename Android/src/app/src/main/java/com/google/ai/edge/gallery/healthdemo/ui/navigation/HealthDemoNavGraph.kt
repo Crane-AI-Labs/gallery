@@ -125,6 +125,9 @@ fun HealthDemoNavGraph(
                     }
                 },
                 onSavePausedAndGoHome = { paused ->
+                    // BUG-03: remove auto-saved assessment before saving as paused
+                    val autoSavedId = viewModel.uiState.value.savedAssessment?.id
+                    if (autoSavedId != null) repository.remove(autoSavedId)
                     repository.savePaused(paused)
                     viewModel.resetAssessment()
                     navController.navigate(HealthDemoDestinations.LANDING) {

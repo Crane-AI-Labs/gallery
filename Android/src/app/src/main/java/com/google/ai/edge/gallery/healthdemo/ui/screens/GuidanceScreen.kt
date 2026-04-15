@@ -2,8 +2,10 @@ package com.google.ai.edge.gallery.healthdemo.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -359,30 +361,28 @@ fun GuidanceScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Refer Patient — deliberate clinical decision when no further help possible
-            OutlinedButton(
-                onClick = { showReferralSheet = true },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, NavyBlue)
-            ) {
-                Icon(Icons.Default.Send, contentDescription = null, tint = NavyBlue, modifier = androidx.compose.ui.Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Refer Patient", fontSize = 15.sp, color = NavyBlue, fontWeight = FontWeight.Medium)
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Pause Patient
-            OutlinedButton(
-                onClick = { showPauseSheet = true },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, OrangeGold)
-            ) {
-                Icon(Icons.Default.Pause, contentDescription = null, tint = OrangeGold, modifier = androidx.compose.ui.Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Pause Patient", fontSize = 15.sp, color = OrangeGold, fontWeight = FontWeight.Medium)
+            // Refer + Pause — compact side-by-side row (BUG-08)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { showReferralSheet = true },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NavyBlue)
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = null, tint = NavyBlue, modifier = androidx.compose.ui.Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Refer", fontSize = 13.sp, color = NavyBlue, fontWeight = FontWeight.Medium)
+                }
+                OutlinedButton(
+                    onClick = { showPauseSheet = true },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, OrangeGold)
+                ) {
+                    Icon(Icons.Default.Pause, contentDescription = null, tint = OrangeGold, modifier = androidx.compose.ui.Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Pause", fontSize = 13.sp, color = OrangeGold, fontWeight = FontWeight.Medium)
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))

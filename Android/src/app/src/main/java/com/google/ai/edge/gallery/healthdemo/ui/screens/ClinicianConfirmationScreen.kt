@@ -29,15 +29,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,9 +47,7 @@ import com.google.ai.edge.gallery.healthdemo.data.FinalAction
 import com.google.ai.edge.gallery.healthdemo.data.GuidanceUsed
 import com.google.ai.edge.gallery.healthdemo.data.HealthDemoRepository
 import com.google.ai.edge.gallery.healthdemo.data.IssueTag
-import com.google.ai.edge.gallery.healthdemo.data.ReferralInfo
 import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
-import kotlinx.coroutines.launch
 
 private val NavyBlue = Color(0xFF0D1B5E)
 
@@ -67,11 +62,6 @@ fun ClinicianConfirmationScreen(
     var guidanceUsed by remember { mutableStateOf<GuidanceUsed?>(null) }
     var finalAction by remember { mutableStateOf<FinalAction?>(null) }
     var selectedTags by remember { mutableStateOf<Set<IssueTag>>(emptySet()) }
-    var showReferralSheet by remember { mutableStateOf(false) }
-    var pendingConfirmation by remember { mutableStateOf<ClinicianConfirmation?>(null) }
-
-    val referralSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
 
     val canSave = understood && finalAction != null
 
@@ -198,16 +188,13 @@ fun ClinicianConfirmationScreen(
                         issueTags = selectedTags.toList()
                     )
                     viewModel.setClinicianConfirmation(confirmation)
-                    if (finalAction == FinalAction.Referred) {
-                        pendingConfirmation = confirmation
-                        showReferralSheet = true
-                    } else {
-                        val savedId = viewModel.uiState.value.savedAssessment?.id
-                        if (savedId != null) {
-                            repository.updateConfirmation(savedId, confirmation, null)
-                        }
-                        onCaseSaved(savedId ?: "")
+                    // BUG-07: "Referred" just logs the outcome — referral was already
+                    // initiated from GuidanceScreen. Do not re-open the referral flow here.
+                    val savedId = viewModel.uiState.value.savedAssessment?.id
+                    if (savedId != null) {
+                        repository.updateConfirmation(savedId, confirmation, null)
                     }
+                    onCaseSaved(savedId ?: "")
                 },
                 enabled = canSave,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -222,34 +209,6 @@ fun ClinicianConfirmationScreen(
         }
     }
 
-    // ── Referral Sheet ─────────────────────────────────────────────────────────
-    if (showReferralSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showReferralSheet = false },
-            sheetState = referralSheetState,
-            containerColor = Color.White
-        ) {
-            ReferralSheet(
-                onSave = { referral ->
-                    val confirmation = pendingConfirmation
-                    val savedId = viewModel.uiState.value.savedAssessment?.id
-                    if (savedId != null && confirmation != null) {
-                        repository.updateConfirmation(savedId, confirmation, referral)
-                    }
-                    viewModel.setReferralInfo(referral)
-                    scope.launch { referralSheetState.hide() }.invokeOnCompletion {
-                        showReferralSheet = false
-                        onCaseSaved(savedId ?: "")
-                    }
-                },
-                onCancel = {
-                    scope.launch { referralSheetState.hide() }.invokeOnCompletion {
-                        showReferralSheet = false
-                    }
-                }
-            )
-        }
-    }
 }
 
 @Composable
