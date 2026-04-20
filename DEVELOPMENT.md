@@ -2,6 +2,24 @@
 
 ## Build app locally
 
+### Clone with submodules
+
+The Android NDK build depends on the `llama-rn-turbo-quant` submodule
+(llama.cpp + TurboQuant CPU kernels). A plain `git clone` leaves that
+directory empty and the CMake configure step fails. Clone with:
+
+```bash
+git clone --recurse-submodules https://github.com/Crane-AI-Labs/gallery.git
+```
+
+Or, if you already cloned without `--recurse-submodules`:
+
+```bash
+git submodule update --init --recursive
+```
+
+### HuggingFace OAuth (upstream gallery features only)
+
 To successfully build and run the application through Android Studio, you need to configure it with your own HuggingFace Developer Application ([official doc](https://huggingface.co/docs/hub/oauth#creating-an-oauth-app)). This is required for the model download functionality to work correctly.
 
 After you've created a developer application:
