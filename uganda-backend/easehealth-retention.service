@@ -1,0 +1,19 @@
+[Unit]
+Description=Ease Health retention cleanup — DPPA 2019 §18
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=easehealth-etl
+Group=easehealth-etl
+WorkingDirectory=/opt/easehealth-etl
+EnvironmentFile=/opt/easehealth-etl/.env
+ExecStart=/opt/easehealth-etl/.venv/bin/python /opt/easehealth-etl/retention.py
+TimeoutStartSec=10min
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/easehealth-etl
+StandardOutput=journal
+StandardError=journal

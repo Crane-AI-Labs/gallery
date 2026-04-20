@@ -1,0 +1,10 @@
+[Unit]
+Description=Ease Health ETL timer — runs every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

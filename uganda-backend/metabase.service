@@ -1,0 +1,19 @@
+[Unit]
+Description=Metabase (BI dashboards for Ease Health analytics)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=metabase
+Group=metabase
+WorkingDirectory=/opt/metabase
+EnvironmentFile=/opt/metabase/metabase.env
+ExecStart=/usr/bin/java -jar /opt/metabase/metabase.jar
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+# Metabase binds 3000, nginx proxies /metabase/ → 127.0.0.1:3000
+
+[Install]
+WantedBy=multi-user.target
