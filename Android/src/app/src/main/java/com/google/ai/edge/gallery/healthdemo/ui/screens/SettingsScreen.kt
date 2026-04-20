@@ -42,14 +42,26 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberCoroutineScope
 import com.google.ai.edge.gallery.healthdemo.data.AppSettings
+import com.google.ai.edge.gallery.healthdemo.data.HealthDemoRepository
 import com.google.ai.edge.gallery.healthdemo.data.PatientRole
+import com.google.ai.edge.gallery.healthdemo.data.UgandaApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val NavyBlue = Color(0xFF0D1B5E)
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    repository: HealthDemoRepository? = null,
+) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     var llmModelName by remember { mutableStateOf(AppSettings.getLlmModelName(context)) }
     var asrModelName by remember { mutableStateOf(AppSettings.getAsrModelName(context)) }
@@ -57,6 +69,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     var selectedRole by remember { mutableStateOf(AppSettings.getRole(context)) }
     var isCopying by remember { mutableStateOf(false) }
     var copyingLabel by remember { mutableStateOf("") }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    var deleteResult by remember { mutableStateOf<String?>(null) }
+    var syncDisabled by remember { mutableStateOf(UgandaApi.isSyncDisabled(context)) }
 
     // LLM model picker
     val llmPickerLauncher = rememberLauncherForActivityResult(
@@ -257,6 +273,94 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+
+            // --- Sync status (only visible when sync is blocked) ---
+            if (syncDisabled) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFFF3E0),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            "Sync paused",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFE65100),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "The server rejected this phone's sync token. Your assessments " +
+                                "are safe on the phone. Tap Reset sync to re-enrol — your " +
+                                "existing assessments will be uploaded under a new device ID.",
+                            fontSize = 13.sp,
+                            color = Color(0xFF424242),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                UgandaApi.resetIdentity(context)
+                                syncDisabled = false
+                                // Trigger a backfill so the user sees the
+                                // "Synced" indicator flip immediately rather
+                                // than waiting for the next save or cold start.
+                                repository?.triggerBackfill()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Text("Reset sync", color = Color(0xFFE65100))
+                        }
+                    }
+                }
+            }
+
+            // --- Delete my data (DPPA §7 — right to erasure) ---
+            if (repository != null) {
+                Text(
+                    "Data & Privacy",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1F1F1F),
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Erase every record this phone has sent to the Ease Health server. " +
+                        "Your local history on this phone is also cleared. This cannot be undone.",
+                    fontSize = 13.sp,
+                    color = Color(0xFF666666),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                deleteResult?.let { msg ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (msg.startsWith("Error") || msg.startsWith("Offline")) Color(0xFFFFEBEE) else Color(0xFFE8F5E9),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    ) {
+                        Text(
+                            msg,
+                            modifier = Modifier.padding(12.dp),
+                            fontSize = 13.sp,
+                            color = if (msg.startsWith("Error") || msg.startsWith("Offline")) Color(0xFFC62828) else Color(0xFF2E7D32),
+                        )
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = { showDeleteDialog = true },
+                    enabled = !deleting,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        if (deleting) "Deleting…" else "Delete my data",
+                        color = Color(0xFFC62828),
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+            }
         }
 
         // Done button
@@ -271,5 +375,48 @@ fun SettingsScreen(onBack: () -> Unit) {
         ) {
             Text("Done", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
         }
+    }
+
+    if (showDeleteDialog && repository != null) {
+        AlertDialog(
+            onDismissRequest = { if (!deleting) showDeleteDialog = false },
+            title = { Text("Delete my data?") },
+            text = {
+                Text(
+                    "This will erase every record this phone has sent to the server and " +
+                        "wipe your local history. This cannot be undone. De-identified analytics " +
+                        "from previous days may remain — those cannot be linked back to you."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !deleting,
+                    onClick = {
+                        deleting = true
+                        deleteResult = null
+                        coroutineScope.launch {
+                            val ok = withContext(Dispatchers.IO) {
+                                repository.deleteAllMyData()
+                            }
+                            deleting = false
+                            showDeleteDialog = false
+                            deleteResult = if (ok) {
+                                "Data erased from the server and this device."
+                            } else {
+                                "Offline — local data wiped, but the server copy was not erased. Try again when connected."
+                            }
+                        }
+                    },
+                ) {
+                    Text("Delete", color = Color(0xFFC62828))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !deleting,
+                    onClick = { showDeleteDialog = false },
+                ) { Text("Cancel") }
+            },
+        )
     }
 }

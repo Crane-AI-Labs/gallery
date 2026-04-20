@@ -31,7 +31,11 @@ data class SavedAssessmentEntity(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val locationAccuracyMeters: Float? = null,
-    val district: String? = null
+    val district: String? = null,
+    // Sync: ms timestamp of the last successful POST to the Uganda API,
+    // or null if never uploaded. Used to skip already-synced rows during
+    // startup backfill so we don't re-push everything every launch.
+    val syncedAt: Long? = null
 )
 
 fun SavedAssessment.toEntity() = SavedAssessmentEntity(
@@ -60,6 +64,12 @@ interface AssessmentDao {
     @Query("SELECT * FROM saved_assessments WHERE id = :id")
     suspend fun getById(id: String): SavedAssessmentEntity?
 
+    @Query("SELECT * FROM saved_assessments WHERE syncedAt IS NULL ORDER BY timestamp ASC")
+    suspend fun getUnsynced(): List<SavedAssessmentEntity>
+
+    @Query("UPDATE saved_assessments SET syncedAt = :at WHERE id = :id")
+    suspend fun markSynced(id: String, at: Long)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: SavedAssessmentEntity)
 
@@ -68,6 +78,9 @@ interface AssessmentDao {
 
     @Query("DELETE FROM saved_assessments WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM saved_assessments")
+    suspend fun deleteAll()
 }
 
 // ─── Paused Consultation Entity ──────────────────────────────────────────────
@@ -87,7 +100,8 @@ data class PausedConsultationEntity(
     val checkedSigns: Set<String>,
     val confirmedSigns: Set<String>,
     val pauseReason: PauseReason?,
-    val note: String
+    val note: String,
+    val syncedAt: Long? = null
 )
 
 fun PausedConsultation.toEntity() = PausedConsultationEntity(
@@ -112,9 +126,18 @@ interface PausedConsultationDao {
     @Query("SELECT * FROM paused_consultations WHERE id = :id")
     suspend fun getById(id: String): PausedConsultationEntity?
 
+    @Query("SELECT * FROM paused_consultations WHERE syncedAt IS NULL ORDER BY timestamp ASC")
+    suspend fun getUnsynced(): List<PausedConsultationEntity>
+
+    @Query("UPDATE paused_consultations SET syncedAt = :at WHERE id = :id")
+    suspend fun markSynced(id: String, at: Long)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: PausedConsultationEntity)
 
     @Query("DELETE FROM paused_consultations WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM paused_consultations")
+    suspend fun deleteAll()
 }

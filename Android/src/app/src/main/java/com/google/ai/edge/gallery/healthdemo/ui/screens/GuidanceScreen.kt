@@ -334,7 +334,7 @@ fun GuidanceScreen(
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
             if (isSaved) {
                 val context = LocalContext.current
-                val isOnline = com.google.ai.edge.gallery.healthdemo.data.FirestoreSync.isOnline(context)
+                val isOnline = com.google.ai.edge.gallery.healthdemo.data.UgandaApiSync.isOnline(context)
                 val syncText = if (isOnline) "Case saved and synced." else "Case saved locally. Will sync when connected."
                 val syncColor = if (isOnline) Color(0xFF2E7D32) else Color(0xFFE65100)
                 Surface(

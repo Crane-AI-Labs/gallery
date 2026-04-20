@@ -19,8 +19,8 @@ private const val TAG = "HealthDemoRepository"
 /**
  * Room-backed repository for saved and paused patient assessments.
  * Data survives app close, process death, and device restart.
- * Syncs to Firestore when online. On app launch, any records saved
- * while offline are pushed to Firestore automatically.
+ * Syncs to the Uganda API (Kampala VM) when online; on app launch,
+ * any records saved while offline are pushed automatically.
  */
 class HealthDemoRepository(private val context: Context) {
 
@@ -61,8 +61,10 @@ class HealthDemoRepository(private val context: Context) {
         scope.launch {
             assessmentDao.insert(assessment.toEntity())
             Log.d(TAG, "Saved assessment ${assessment.id}")
-            if (FirestoreSync.isOnline(context)) {
-                FirestoreSync.syncAssessment(context, assessment)
+            if (UgandaApiSync.isOnline(context)) {
+                if (UgandaApiSync.syncAssessment(context, assessment)) {
+                    assessmentDao.markSynced(assessment.id, System.currentTimeMillis())
+                }
             }
         }
     }
@@ -70,11 +72,19 @@ class HealthDemoRepository(private val context: Context) {
     fun updateConfirmation(id: String, confirmation: ClinicianConfirmation, referral: ReferralInfo?) {
         scope.launch {
             val entity = assessmentDao.getById(id) ?: return@launch
-            val updated = entity.copy(clinicianConfirmation = confirmation, referralInfo = referral)
+            // Confirmation is a server-visible mutation → clear syncedAt so the
+            // next backfill re-pushes, then mark synced again on success.
+            val updated = entity.copy(
+                clinicianConfirmation = confirmation,
+                referralInfo = referral,
+                syncedAt = null,
+            )
             assessmentDao.update(updated)
             Log.d(TAG, "Updated confirmation for $id")
-            if (FirestoreSync.isOnline(context)) {
-                FirestoreSync.syncAssessment(context, updated.toDomain())
+            if (UgandaApiSync.isOnline(context)) {
+                if (UgandaApiSync.syncAssessment(context, updated.toDomain())) {
+                    assessmentDao.markSynced(id, System.currentTimeMillis())
+                }
             }
         }
     }
@@ -91,8 +101,10 @@ class HealthDemoRepository(private val context: Context) {
         scope.launch {
             pausedDao.insert(consultation.toEntity())
             Log.d(TAG, "Saved paused consultation ${consultation.id}")
-            if (FirestoreSync.isOnline(context)) {
-                FirestoreSync.syncPaused(context, consultation)
+            if (UgandaApiSync.isOnline(context)) {
+                if (UgandaApiSync.syncPaused(context, consultation)) {
+                    pausedDao.markSynced(consultation.id, System.currentTimeMillis())
+                }
             }
         }
     }
@@ -101,7 +113,7 @@ class HealthDemoRepository(private val context: Context) {
         scope.launch {
             pausedDao.deleteById(id)
             Log.d(TAG, "Removed paused consultation $id")
-            FirestoreSync.removePausedFromCloud(id)
+            UgandaApiSync.removePausedFromCloud(id, context)
         }
     }
 
@@ -111,41 +123,84 @@ class HealthDemoRepository(private val context: Context) {
     fun updateReferral(id: String, referral: ReferralInfo) {
         scope.launch {
             val entity = assessmentDao.getById(id) ?: return@launch
-            val updated = entity.copy(referralInfo = referral)
+            val updated = entity.copy(referralInfo = referral, syncedAt = null)
             assessmentDao.update(updated)
             Log.d(TAG, "Updated referral for $id")
-            if (FirestoreSync.isOnline(context)) {
-                FirestoreSync.syncAssessment(context, updated.toDomain())
+            if (UgandaApiSync.isOnline(context)) {
+                if (UgandaApiSync.syncAssessment(context, updated.toDomain())) {
+                    assessmentDao.markSynced(id, System.currentTimeMillis())
+                }
             }
         }
     }
 
     /**
-     * Push all local records to Firestore. Called on app launch to catch
-     * any records saved while offline. Firestore merge mode means
-     * re-syncing an already-synced record is safe (idempotent).
+     * Push un-synced local records to the Uganda API. Called on app launch
+     * to catch anything saved while offline. Rows with a non-null `syncedAt`
+     * are skipped, so we don't re-push the entire history on every launch.
      */
     private suspend fun syncAllToCloud() {
-        if (!FirestoreSync.isOnline(context)) {
+        if (!UgandaApiSync.isOnline(context)) {
             Log.d(TAG, "Offline — skipping cloud sync")
             return
         }
 
-        Log.d(TAG, "Syncing all local records to Firestore...")
-        FirestoreSync.syncDeviceDiagnostics(context)
+        Log.d(TAG, "Syncing un-synced records to Uganda API...")
+        UgandaApiSync.syncDeviceDiagnostics(context)
 
-        // Read directly from Room DAO, not the StateFlow cache (which may be stale)
-        val allAssessments = assessmentDao.getAll().first().map { it.toDomain() }
-        val allPaused = pausedDao.getAll().first().map { it.toDomain() }
+        val pendingAssessments = assessmentDao.getUnsynced()
+        val pendingPaused = pausedDao.getUnsynced()
 
-        allAssessments.forEach { assessment ->
-            FirestoreSync.syncAssessment(context, assessment)
+        var assessmentsOk = 0
+        for (entity in pendingAssessments) {
+            if (UgandaApiSync.syncAssessment(context, entity.toDomain())) {
+                assessmentDao.markSynced(entity.id, System.currentTimeMillis())
+                assessmentsOk++
+            }
+        }
+        var pausedOk = 0
+        for (entity in pendingPaused) {
+            if (UgandaApiSync.syncPaused(context, entity.toDomain())) {
+                pausedDao.markSynced(entity.id, System.currentTimeMillis())
+                pausedOk++
+            }
         }
 
-        allPaused.forEach { paused ->
-            FirestoreSync.syncPaused(context, paused)
-        }
+        Log.d(
+            TAG,
+            "Backfill complete: assessments $assessmentsOk/${pendingAssessments.size}, " +
+                "paused $pausedOk/${pendingPaused.size}"
+        )
+    }
 
-        Log.d(TAG, "Cloud sync complete: ${allAssessments.size} assessments, ${allPaused.size} paused")
+    /**
+     * Kick off a sync backfill now. Used by Settings → Reset sync to
+     * re-enrol immediately rather than making the user wait for the next
+     * save or cold start. Fire-and-forget; progress shows up via the
+     * existing "Synced" StateFlow indicators.
+     */
+    fun triggerBackfill() {
+        scope.launch { syncAllToCloud() }
+    }
+
+    /**
+     * DPPA §7 right-to-erasure action. Tells the server to delete tier_1
+     * records for this device and revoke its token, then wipes local Room
+     * and clears the device identity so the next sync re-enrols fresh.
+     *
+     * Returns true only if the server acknowledged erasure. Caller should
+     * surface the outcome to the user — silent failure would let them
+     * believe their data was gone when it wasn't.
+     */
+    suspend fun deleteAllMyData(): Boolean {
+        val ok = UgandaApiSync.deleteMyData(context)
+        // Even on network failure, wipe local — the user asked to be erased
+        // on this phone and local storage is the most visible trace. The
+        // server-side copy will age out via the retention worker if the
+        // erasure request never reaches it.
+        assessmentDao.deleteAll()
+        pausedDao.deleteAll()
+        Log.d(TAG, "Local records wiped (server ack=$ok)")
+        return ok
     }
 }

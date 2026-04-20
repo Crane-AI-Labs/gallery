@@ -15,6 +15,7 @@ import com.google.ai.edge.gallery.healthdemo.data.PatientRole
 import com.google.ai.edge.gallery.healthdemo.ui.screens.AssessmentDetailsScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.CaseSavedScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.ClinicianConfirmationScreen
+import com.google.ai.edge.gallery.healthdemo.ui.screens.ConsentScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.ConsultationSavedScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.EnterSymptomsScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.FeedbackScreen
@@ -25,6 +26,7 @@ import com.google.ai.edge.gallery.healthdemo.ui.screens.SettingsScreen
 import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
 
 object HealthDemoDestinations {
+    const val CONSENT = "health_demo_consent"
     const val LANDING = "health_demo_landing"
     const val SETTINGS = "health_demo_settings"
     const val PATIENT_ASSESSMENT = "health_demo_patient_assessment"
@@ -57,7 +59,22 @@ fun HealthDemoNavGraph(
         viewModel.setRole(savedRole)
     }
 
-    NavHost(navController = navController, startDestination = HealthDemoDestinations.LANDING) {
+    val startDestination = if (AppSettings.hasAcceptedConsent(context)) {
+        HealthDemoDestinations.LANDING
+    } else {
+        HealthDemoDestinations.CONSENT
+    }
+
+    NavHost(navController = navController, startDestination = startDestination) {
+
+        // ── Consent (DPPA §9 + §27, first launch only) ────────────────────────
+        composable(HealthDemoDestinations.CONSENT) {
+            ConsentScreen(onAccepted = {
+                navController.navigate(HealthDemoDestinations.LANDING) {
+                    popUpTo(HealthDemoDestinations.CONSENT) { inclusive = true }
+                }
+            })
+        }
 
         // ── Landing ───────────────────────────────────────────────────────────
         composable(HealthDemoDestinations.LANDING) {
@@ -78,7 +95,10 @@ fun HealthDemoNavGraph(
 
         // ── Settings ──────────────────────────────────────────────────────────
         composable(HealthDemoDestinations.SETTINGS) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                repository = repository,
+            )
         }
 
         // ── Patient Assessment ────────────────────────────────────────────────

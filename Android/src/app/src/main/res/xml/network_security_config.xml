@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security policy for the Ease Health Uganda backend.
+
+  Scope: ONLY easehealth.afriqloud.cloud gets this pin and trust anchor.
+  Other hosts (model downloads, analytics, etc.) keep the system trust
+  store and default behaviour so a pinning mismatch doesn't brick them.
+
+  Why both trust-anchors AND pin-set?
+    - easehealth_ca.pem is a self-signed cert (no public CA), so Android
+      must be told to trust it explicitly as a CA for this domain.
+    - The pin-set defends against a future mis-issuance if we ever move
+      to a public CA: even then, a rogue cert for this domain is rejected
+      unless its SPKI matches the pinned hash.
+
+  Rotation: add the new pin alongside the old one before swapping certs;
+  keep the old pin for one release cycle, then drop it.
+-->
+<network-security-config>
+    <!--
+      Two `<domain>` entries on the same config so the pin and trust anchor
+      apply whether the app hits the IP (current, no DNS) or the hostname
+      (future, once the A record lands). The cert's SAN covers both, so the
+      pin matches either way.
+    -->
+    <domain-config>
+        <domain includeSubdomains="false">41.220.3.234</domain>
+        <domain includeSubdomains="false">easehealth.afriqloud.cloud</domain>
+        <trust-anchors>
+            <certificates src="@raw/easehealth_ca" />
+        </trust-anchors>
+        <pin-set expiration="2031-04-18">
+            <!-- SPKI SHA-256 of easehealth_ca.pem (5-year cert issued 2026-04-19).
+                 Rotation plan: mint replacement cert ≥6 months before 2031-04-18,
+                 add its pin alongside this one in a pre-expiry app release, then
+                 cut over on the VM and drop the old pin in the next release. -->
+            <pin digest="SHA-256">kAMkuPHfSiH67DO74vh9Wk/dMDJfGebZZm5aHsfZG9c=</pin>
+        </pin-set>
+    </domain-config>
+
+    <!-- Fallback: everything else (model downloads, Firebase analytics) uses the system trust store. -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

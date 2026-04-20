@@ -25,7 +25,7 @@ private const val TAG = "HealthDatabase"
 
 @Database(
     entities = [SavedAssessmentEntity::class, PausedConsultationEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(HealthTypeConverters::class)
@@ -65,8 +65,18 @@ abstract class HealthDatabase : RoomDatabase() {
             }
         }
 
+        /** Migration 2→3: Add syncedAt column to both tables for per-row sync state. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN syncedAt INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE paused_consultations ADD COLUMN syncedAt INTEGER DEFAULT NULL")
+                Log.d(TAG, "Migration 2→3 complete: added syncedAt")
+            }
+        }
+
         private val ALL_MIGRATIONS: Array<Migration> = arrayOf(
-            MIGRATION_1_2
+            MIGRATION_1_2,
+            MIGRATION_2_3,
         )
 
         fun getInstance(context: Context): HealthDatabase {

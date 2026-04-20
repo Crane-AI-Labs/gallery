@@ -19,6 +19,17 @@ object AppSettings {
     private const val KEY_TOKENIZER_PATH = "tokenizer_path"
     private const val KEY_TOKENIZER_NAME = "tokenizer_name"
     private const val KEY_ROLE = "user_role"
+    private const val KEY_CONSENT_VERSION = "consent_version_accepted"
+
+    /**
+     * Bump this when the consent copy changes materially (new data practices,
+     * new processors, broader sharing). A user who has accepted version N
+     * will be re-prompted when the stored value differs from [CURRENT_CONSENT_VERSION].
+     *
+     * v2: explicit model name + version, right-to-erasure entry point, TLS
+     * pinning notice.
+     */
+    const val CURRENT_CONSENT_VERSION = 2
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -77,6 +88,15 @@ object AppSettings {
         prefs(context).edit()
             .putString(KEY_ROLE, role)
             .apply()
+    }
+
+    // --- Consent (DPPA §9 + §27) ---
+
+    fun hasAcceptedConsent(context: Context): Boolean =
+        prefs(context).getInt(KEY_CONSENT_VERSION, 0) >= CURRENT_CONSENT_VERSION
+
+    fun acceptConsent(context: Context) {
+        prefs(context).edit().putInt(KEY_CONSENT_VERSION, CURRENT_CONSENT_VERSION).apply()
     }
 
     // --- File helpers ---
