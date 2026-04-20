@@ -1,91 +1,167 @@
-# Google AI Edge Gallery ✨
+# Ease Health
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/google-ai-edge/gallery)](https://github.com/google-ai-edge/gallery/releases)
+An Android app that helps frontline health workers in rural Uganda triage
+patients with an on-device AI model (MedGemma 4B via llama.cpp), plus a
+Uganda-hosted backend for pseudonymised clinical analytics.
 
-**Explore, Experience, and Evaluate the Future of On-Device Generative AI with Google AI Edge.**
+Built for offline-first clinical use. Forked from the
+[Google AI Edge Gallery](https://github.com/google-ai-edge/gallery) as a
+starting point for the on-device LLM plumbing; most of the product surface
+has since been rewritten.
 
-The Google AI Edge Gallery is an experimental app that puts the power of cutting-edge Generative AI models directly into your hands, running entirely on your Android *(available now)* and iOS *(available now via TestFlight)* devices. Dive into a world of creative and practical AI use cases, all running locally, without needing an internet connection once the model is loaded. Experiment with different models, chat, ask questions with images and audio clip, explore prompts, and more!
+## What it does
 
-Install the app today from Google Play
+1. A nurse, midwife, or medical officer opens the app on a Galaxy A-series
+   or similar budget phone in a rural health centre.
+2. They enter the patient's symptoms, age, sex, vitals, and any confirmed
+   danger signs. Optionally they attach a photo or speak a voice note
+   (transcribed locally by MedASR).
+3. **MedGemma runs on-device** and returns a structured assessment —
+   possible condition, suggested treatment, next steps, red flags, and a
+   forced triage level: Emergency referral · Urgent clinic visit ·
+   Routine care · Home care.
+4. The clinician makes the final call, records what they did, and the
+   assessment is saved locally (SQLCipher-encrypted Room DB).
+5. When the phone has connectivity, the assessment is redacted of
+   structured PII on-device and synced to the **Ease Health backend in
+   Kampala** (Afriqloud VM) over a pinned TLS connection. A second NER
+   pass on the server catches names before promoting the record into the
+   pseudonymised analytics layer.
 
-<a href='https://play.google.com/store/apps/details?id=com.google.ai.edge.gallery'><img alt='Get it on Google Play' width="250" src='https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png'/></a>
+The app works fully offline. Sync is a background concern — the clinician
+never waits on it.
 
-For users without Google Play access, install the apk from the [**latest release**](https://github.com/google-ai-edge/gallery/releases/latest/)
+## Architecture at a glance
 
-> [!IMPORTANT]
-> You must uninstall all previous versions of the app before installing this one. Past versions will no longer be working and supported.
+```
+Phone                                         Kampala VM
+───────────────────────────                   ────────────────────────────
+com.craneailabs.easehealth                    41.220.3.234
+                                              (easehealth.afriqloud.cloud
+                                               once DNS resolves)
 
-## iOS Testing via TestFlight
+ MedGemma 4B (Q4_0, llama.cpp)                nginx (rate limit + TLS)
+ MedASR (ONNX)                                  │
+      │                                         ├── /api/*  ──► FastAPI
+ PiiRedactor (regex)                            │               ├── tier_1_identified
+      │                                         │               │   (PII — short-lived)
+ Room (SQLCipher)                               │               └── audit_log
+      │                                         │
+ UgandaApi (HTTPS + SPKI pin) ──────────────────┘
+                                                │
+                                                ▼
+                                        ETL (Presidio NER, every 15 min)
+                                                │
+                                                ▼
+                                        tier_2_analytics
+                                        (pseudonymised, served via Metabase)
+```
 
-We're excited to announce that the app is now available for testing on iOS through TestFlight! We invite you to be among the first to try it out and share your feedback.
+Two-tier data model:
 
-***How to Join***:
+- **tier_1_identified** — device token, precise timestamp, rough location,
+  full free text. Short retention (90 days). Behind `psql` + audit logging.
+- **tier_2_analytics** — HMAC pseudonym, week + district bucket, age band,
+  NER-redacted text. Long retention (2 years). What Metabase sees.
 
-- Follow this [**public invitation link**](https://testflight.apple.com/join/nAtSQKTF) to get access.
+Privacy layering:
 
-- Availability: Access is on a first-come, first-served basis. TestFlight currently limits the number of testers to 10,000.
-  
-- Supported device models: iOS devices with at least 6GB of RAM.
+1. Ugandan-specific regex redaction on-device before upload (phones,
+   NINs, passports, TINs, NSSF, ISO/DMY dates, emails).
+2. Microsoft Presidio NER on the server catches names that slip through.
+3. District-level location aggregation at promotion time.
+4. Retention sweep daily at 03:15 UTC (`etl/retention.py`).
 
-We appreciate your help with this early testing phase. Your feedback is invaluable as we work to improve the app. Once we've gathered and addressed all the feedback, we aim to officially launch on the App Store early 2026.
+Compliance:
 
-<img width="480" alt="01" src="https://github.com/user-attachments/assets/09dbcf7e-a298-4063-920e-bfc88591f4a2" />
-<img width="480" alt="02" src="https://github.com/user-attachments/assets/e2986bba-f807-42e1-9d5e-a5a978fa97e9" />
-<img width="480" alt="03" src="https://github.com/user-attachments/assets/ad3aa9ab-e3b6-4a12-bbd4-885bb202aa0f" />
-<img width="480" alt="04" src="https://github.com/user-attachments/assets/6441e752-e5f5-4753-9611-fa0122cdae49" />
-<img width="480" alt="05" src="https://github.com/user-attachments/assets/a5ebcf15-640a-4c11-93ce-b92fe365f1a3" />
-<img width="480" alt="06" src="https://github.com/user-attachments/assets/973c7a66-1906-400e-8fac-ee9b13b21aa1" />
-<img width="480" alt="07" src="https://github.com/user-attachments/assets/d3227bc6-8d78-47a1-bbfa-93f009117882" />
+- **DPPA 2019 §9** — informed consent (first-launch `ConsentScreen`, v2).
+- **DPPA 2019 §18** — minimum-necessary retention (retention worker).
+- **DPPA 2019 §19** — data sovereignty (Kampala VM, no cross-border copy).
+- **DPPA 2019 §27** — automated-decision disclosure (consent copy names the
+  model, forced triage taxonomy, and clinician-makes-final-call principle).
+- **DPPA 2019 §30** — audit trail on every tier_1 write.
 
-## ✨ Core Features
+## Repo layout
 
-*   **📱 Run Locally, Fully Offline:** Experience the magic of GenAI without an internet connection. All processing happens directly on your device.
-*   **🤖 Choose Your Model:** Easily switch between different models from Hugging Face and compare their performance.
-*   **🌻 Tiny Garden**: Play an experimental and fully offline mini game that uses natural language to plant, water, and harvest flowers.
-*   **📳 Mobile Actions**: Use our [open-source recipe](https://github.com/google-gemini/gemma-cookbook/blob/main/FunctionGemma/%5BFunctionGemma%5DFinetune_FunctionGemma_270M_for_Mobile_Actions_with_Hugging_Face.ipynb) to learn model fine-tuning, then load it in app to unlock offline device controls.
-*   **🖼️ Ask Image:** Upload images and ask questions about them. Get descriptions, solve problems, or identify objects.
-*   **🎙️ Audio Scribe:** Transcribe an uploaded or recorded audio clip into text or translate it into another language.
-*   **✍️ Prompt Lab:** Summarize, rewrite, generate code, or use freeform prompts to explore single-turn LLM use cases.
-*   **💬 AI Chat:** Engage in multi-turn conversations.
-*   **📊 Performance Insights:** Real-time benchmarks (TTFT, decode speed, latency).
-*   **🧩 Bring Your Own Model:** Test your local LiteRT `.litertlm` models.
-*   **🔗 Developer Resources:** Quick links to model cards and source code.
+```
+Android/                   Kotlin + Jetpack Compose. Build with ./gradlew :app:assembleDebug.
+  src/app/.../healthdemo/  The clinical product surface.
+  src/app/.../llm/         llama.cpp JNI + loader.
 
-## 🏁 Get Started in Minutes!
+uganda-backend/            FastAPI + Postgres, lives on the Kampala VM.
+  app/main.py              Ingestion API.
+  etl/                     Presidio promotion + retention workers.
+  migrations/              Numbered, idempotent, apply in order.
+  schema.sql               Full schema (two tiers, audit_log, device_registry).
+  nginx-easehealth.conf    TLS, rate limits, HSTS, basic-auth for /metabase/.
+  tls/                     Public cert + OpenSSL config (keys gitignored).
+  scripts/revoke-device.sh Ops runbook — revoke a stolen device token.
+  deploy-hardening.sh      Idempotent one-shot deploy.
+  DEVELOPERS.md            How to get SSH, DB, and Metabase access.
+  .secrets.env.example     Template — fill in and rename to .secrets.env.
 
-1. **Check OS Requirement**: Android 12 and up
-2.  **Download the App:**
-    - Install the app from [Google Play](https://play.google.com/store/apps/details?id=com.google.ai.edge.gallery).
-    - For users without Google Play access: install the apk from the [**latest release**](https://github.com/google-ai-edge/gallery/releases/latest/)
-3.  **Install & Explore:** For detailed installation instructions (including for corporate devices) and a full user guide, head over to our [**Project Wiki**](https://github.com/google-ai-edge/gallery/wiki)!
+app-wireframes/            UX source of truth.
+model_allowlists/          Which GGUF / ONNX builds the app will load.
+```
 
-## 🛠️ Technology Highlights
+## Quick start
 
-*   **Google AI Edge:** Core APIs and tools for on-device ML.
-*   **LiteRT:** Lightweight runtime for optimized model execution.
-*   **LLM Inference API:** Powering on-device Large Language Models.
-*   **Hugging Face Integration:** For model discovery and download.
+### Build + install the app
 
-## ⌨️ Development
+```bash
+cd Android/src
+./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
-Check out the [development notes](DEVELOPMENT.md) for instructions about how to build the app locally.
+The debug APK is ~3.4 GB — models are bundled for offline-first sideload
+distribution (clinics typically side-load from a USB stick).
 
-## 🤝 Feedback
+First launch shows a DPPA-compliant consent screen, then the role
+selector. Once accepted, that phone mints a device token with the Kampala
+API and starts syncing.
 
-This is an **experimental Beta release**, and your input is crucial!
+### Run the backend
 
-*   🐞 **Found a bug?** [Report it here!](https://github.com/google-ai-edge/gallery/issues/new?assignees=&labels=bug&template=bug_report.md&title=%5BBUG%5D)
-*   💡 **Have an idea?** [Suggest a feature!](https://github.com/google-ai-edge/gallery/issues/new?assignees=&labels=enhancement&template=feature_request.md&title=%5BFEATURE%5D)
+The backend is already deployed. If you need to re-provision a VM:
 
-## 📄 License
+```bash
+cd uganda-backend
+cp .secrets.env.example .secrets.env  # fill in real values
+./deploy-hardening.sh
+```
 
-Licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for details.
+See [`uganda-backend/DEVELOPERS.md`](uganda-backend/DEVELOPERS.md) for
+access (SSH, Metabase, DB), the revocation runbook, and how secrets flow.
 
-## 🔗 Useful Links
+### Do UI-only work
 
-*   [**Project Wiki (Detailed Guides)**](https://github.com/google-ai-edge/gallery/wiki)
-*   [Hugging Face LiteRT Community](https://huggingface.co/litert-community)
-*   [LLM Inference guide for Android](https://ai.google.dev/edge/mediapipe/solutions/genai/llm_inference/android)
-*   [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM)
-*   [Google AI Edge Documentation](https://ai.google.dev/edge)
+The app runs against a mock guidance engine if the backend isn't reachable —
+so a UI-focused developer can iterate in the emulator without any
+backend setup. Everything under `Android/` can be cloned and built
+independently; touching `uganda-backend/` is only necessary when you're
+editing the sync contract.
+
+## Documentation
+
+- [`uganda-backend/DEVELOPERS.md`](uganda-backend/DEVELOPERS.md) — backend
+  access, Metabase setup, DB tunnels, scripts, and debug runbook.
+- [`DEVELOPMENT.md`](DEVELOPMENT.md) — local Android build notes.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — fork etiquette + PR rules.
+- [`Bug_Reporting_Guide.md`](Bug_Reporting_Guide.md) — how to file clinically
+  actionable bug reports.
+
+## Status
+
+Deployed to a pilot clinic in Uganda. Sideload-only (no Play Store
+distribution — the bundled model is larger than Play Asset Delivery's 1 GB
+cap, and the app is currently audited for DPPA compliance rather than
+open-market release).
+
+Open tracks: Luganda / Runyankole / Luo consent translation; Play Asset
+Delivery if Play Store distribution ever becomes a goal.
+
+## License
+
+Apache License 2.0 — inherited from the upstream Google AI Edge Gallery.
+See [LICENSE](LICENSE).

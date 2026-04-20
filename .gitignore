@@ -2,3 +2,38 @@
 release/
 *.apk
 google-services.json
+
+# ── Secrets (never commit) ────────────────────────────────────────────────
+*.secrets.env
+*.secret.env
+.env.local
+.env.*.local
+
+# TLS / auth artefacts — keep the config + public cert, drop the key
+*.key
+*.key.*
+*.htpasswd
+*.pem.bak
+
+# SSH / GPG
+id_rsa
+id_ed25519
+*.ppk
+
+# ── Local scratch (keep the repo tidy) ────────────────────────────────────
+.claude/
+Android/Untitled
+APK-README.md
+FORMAT_TEST_PLAN.md
+INFERENCE_PERFORMANCE_LOG.md
+
+# ── Build outputs ─────────────────────────────────────────────────────────
+Android/src/app/build/
+Android/src/build/
+Android/src/.gradle/
+Android/src/**/local.properties
+
+# ── Python venvs / caches from backend dev ────────────────────────────────
+uganda-backend/.venv/
+uganda-backend/**/__pycache__/
+uganda-backend/**/*.pyc
