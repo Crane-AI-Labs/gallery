@@ -80,7 +80,7 @@ fun ClinicianConfirmationScreen(
         ) {
             Spacer(modifier = Modifier.height(24.dp))
 
-            Text("Clinician Confirmation", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+            Text("Save Assessment", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
             Text(
                 "Complete all required fields, optional ones will have the word \"optional\" next to them.",
                 fontSize = 13.sp,

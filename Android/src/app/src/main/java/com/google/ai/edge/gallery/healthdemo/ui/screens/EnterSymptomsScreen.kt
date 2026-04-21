@@ -257,6 +257,13 @@ fun EnterSymptomsScreen(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Voice + Image (immediately after symptom entry)
+                // #10: English-only disclaimer for voice input
+                Text(
+                    "English only — transcribes speech, does not translate.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF9E9E9E)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
                         onClick = {
@@ -323,6 +330,13 @@ fun EnterSymptomsScreen(
                         Text("Upload from Gallery", fontSize = 13.sp, color = if (hasImage) Color(0xFF2E7D32) else Color(0xFF1F1F1F))
                     }
                 }
+
+                // #09: pre-capture guidance
+                Text(
+                    "Capture your photo with the camera app first, then attach it here.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF9E9E9E)
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -513,7 +527,7 @@ fun EnterSymptomsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Signs & Symptoms", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                    Text("Danger Signs", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
                     Text("(tick all that apply)", fontSize = 12.sp, color = Color(0xFF9E9E9E))
                 }
                 Spacer(modifier = Modifier.height(10.dp))

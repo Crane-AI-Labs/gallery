@@ -196,7 +196,7 @@ fun GuidanceScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Saved banner (green) or Disclaimer (outlined)
+            // Single consolidated save banner (#11) or Disclaimer
             if (isSaved) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
@@ -204,7 +204,7 @@ fun GuidanceScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Assessment saved on this device.",
+                        text = "Case saved. Will sync when online.",
                         modifier = Modifier.padding(12.dp),
                         fontSize = 13.sp,
                         color = Color(0xFF2E7D32)
@@ -372,22 +372,6 @@ fun GuidanceScreen(
 
         // Bottom actions
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-            if (isSaved) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFE8F5E9),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "Case saved locally. Will sync when connected.",
-                        modifier = Modifier.padding(12.dp),
-                        fontSize = 13.sp,
-                        color = Color(0xFF2E7D32)
-                    )
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-
             // Primary: confirm outcome
             Button(
                 onClick = onConfirmOutcome,
@@ -395,7 +379,7 @@ fun GuidanceScreen(
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
             ) {
-                Text("Confirm Outcome", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                Text("Save Assessment", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -428,10 +412,7 @@ fun GuidanceScreen(
 
             // Create New Assessment (outlined)
             OutlinedButton(
-                onClick = {
-                    viewModel.resetAssessment()
-                    onCreateNew()
-                },
+                onClick = { showNewAssessmentDialog = true },
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(8.dp),
                 border = androidx.compose.foundation.BorderStroke(1.5.dp, NavyBlue)

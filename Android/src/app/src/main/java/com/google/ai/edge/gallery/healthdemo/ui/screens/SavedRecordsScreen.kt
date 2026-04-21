@@ -258,6 +258,7 @@ private fun CaseCard(assessment: SavedAssessment, onView: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .border(1.dp, if (hasDangerSigns) Color(0xFFFFCDD2) else Color(0xFFE0E0E0), RoundedCornerShape(10.dp))
+            .clickable(onClick = onView)
             .padding(14.dp)
     ) {
         Row(
@@ -295,7 +296,7 @@ private fun CaseCard(assessment: SavedAssessment, onView: () -> Unit) {
         Spacer(modifier = Modifier.height(10.dp))
 
         Row(
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onView),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.End
         ) {
