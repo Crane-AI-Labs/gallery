@@ -186,15 +186,61 @@ fun AssessmentDetailSheet(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
+            // Referral Record — shown when patient was referred (#06)
+            if (assessment.referralInfo != null) {
+                val ref = assessment.referralInfo
+                val urgencyColor = when (ref.urgency) {
+                    com.google.ai.edge.gallery.healthdemo.data.ReferralUrgency.Emergency -> DangerRed
+                    com.google.ai.edge.gallery.healthdemo.data.ReferralUrgency.Urgent -> OrangeGold
+                    else -> Color(0xFF1565C0)
+                }
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = urgencyColor.copy(alpha = 0.08f),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, urgencyColor.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(shape = RoundedCornerShape(6.dp), color = urgencyColor) {
+                                Text(ref.urgency.label, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Referral Record", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                        }
+                        if (ref.destination != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Destination", fontSize = 12.sp, color = Color(0xFF9E9E9E))
+                            Text(ref.destination.label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1F1F1F))
+                        }
+                        if (ref.reasons.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Reasons", fontSize = 12.sp, color = Color(0xFF9E9E9E))
+                            Text(ref.reasons.joinToString(" · ") { it.label }, fontSize = 13.sp, color = Color(0xFF1F1F1F))
+                        }
+                        if (ref.notes.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Notes", fontSize = 12.sp, color = Color(0xFF9E9E9E))
+                            Text(ref.notes, fontSize = 13.sp, color = Color(0xFF1F1F1F))
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFE0E0E0)))
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             // Session Timeline
             Text("Session Timeline", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
             Spacer(modifier = Modifier.height(12.dp))
 
             val startStr = SimpleDateFormat("MMM d, yyyy 'at' hh:mm a", Locale.getDefault())
-                .format(Date(assessment.timestamp - 18 * 60 * 1000))
+                .format(Date(assessment.sessionStartTime))
+            val durationMs = assessment.timestamp - assessment.sessionStartTime
+            val durationMin = (durationMs / 60000).toInt().coerceAtLeast(0)
+            val durationLabel = if (durationMin > 0) "$durationMin min active" else "< 1 min"
             TimelineRowDetail(dotColor = Color(0xFF4CAF50), label = "Started", time = startStr, isGreen = true)
             Spacer(modifier = Modifier.height(10.dp))
-            TimelineRowDetail(dotColor = Color(0xFF444746), label = "Completed", time = dateStr, subtitle = "18 min active")
+            TimelineRowDetail(dotColor = Color(0xFF444746), label = "Completed", time = dateStr, subtitle = durationLabel)
 
             Spacer(modifier = Modifier.height(24.dp))
         }

@@ -170,6 +170,7 @@ fun HealthDemoNavGraph(
         // ── Consultation Saved ────────────────────────────────────────────────
         composable(HealthDemoDestinations.CONSULTATION_SAVED) {
             ConsultationSavedScreen(
+                repository = repository,
                 onStartNew = {
                     navController.navigate(HealthDemoDestinations.PATIENT_ASSESSMENT) {
                         popUpTo(HealthDemoDestinations.LANDING)

@@ -73,6 +73,7 @@ import androidx.core.content.ContextCompat
 import com.google.ai.edge.gallery.healthdemo.data.CRITICAL_DANGER_SIGNS
 import com.google.ai.edge.gallery.healthdemo.data.DurationUnit
 import com.google.ai.edge.gallery.healthdemo.data.PatientRole
+import com.google.ai.edge.gallery.healthdemo.data.Sex
 import com.google.ai.edge.gallery.healthdemo.data.VitalSigns
 import com.google.ai.edge.gallery.healthdemo.data.WARNING_SIGNS
 import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
@@ -91,7 +92,7 @@ fun EnterSymptomsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val hasImage = uiState.capturedImageBytes != null
-    val canContinue = (uiState.symptoms.isNotBlank() || hasImage) && uiState.age != null
+    val canContinue = (uiState.symptoms.isNotBlank() || hasImage) && uiState.age != null && uiState.sex != null
     val focusManager = LocalFocusManager.current
     val view = LocalView.current
 
@@ -100,6 +101,9 @@ fun EnterSymptomsScreen(
         view.keepScreenOn = true
         onDispose { view.keepScreenOn = false }
     }
+
+    // #07: record session start at screen open, not at first keystroke
+    LaunchedEffect(Unit) { viewModel.markSessionStart() }
 
     var durationUnitExpanded by remember { mutableStateOf(false) }
 
@@ -435,6 +439,42 @@ fun EnterSymptomsScreen(
                                 fontSize = 12.sp,
                                 color = NavyBlue,
                                 fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Sex — required field (#04 regression fix)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Patient Sex", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("*", fontSize = 14.sp, color = DangerRed, fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Sex.entries.filter { it != Sex.Other }.forEach { sexOption ->
+                        val selected = uiState.sex == sexOption
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selected) NavyBlue else Color.White,
+                            modifier = Modifier
+                                .weight(1f)
+                                .border(
+                                    1.5.dp,
+                                    if (selected) NavyBlue else Color(0xFFE0E0E0),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .clickable { viewModel.setSex(sexOption) }
+                        ) {
+                            Text(
+                                sexOption.label,
+                                modifier = Modifier.padding(vertical = 14.dp),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (selected) Color.White else Color(0xFF1F1F1F),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                         }
                     }

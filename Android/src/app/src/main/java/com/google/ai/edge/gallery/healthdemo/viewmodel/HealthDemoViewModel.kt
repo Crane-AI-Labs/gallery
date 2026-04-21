@@ -48,6 +48,7 @@ data class HealthDemoUiState(
     val customRole: String = "",
 
     // Patient assessment form
+    val sessionStartTime: Long = 0L,
     val symptoms: String = "",
     val durationValue: String = "",
     val durationUnit: DurationUnit = DurationUnit.Days,
@@ -109,6 +110,12 @@ class HealthDemoViewModel @Inject constructor(
 
     fun setCustomRole(text: String) {
         _uiState.update { it.copy(customRole = text) }
+    }
+
+    fun markSessionStart() {
+        if (_uiState.value.sessionStartTime == 0L) {
+            _uiState.update { it.copy(sessionStartTime = System.currentTimeMillis()) }
+        }
     }
 
     fun setSymptoms(symptoms: String) {
@@ -419,6 +426,7 @@ class HealthDemoViewModel @Inject constructor(
     fun buildSavedAssessment(): SavedAssessment {
         val state = _uiState.value
         return SavedAssessment(
+            sessionStartTime = if (state.sessionStartTime != 0L) state.sessionStartTime else System.currentTimeMillis(),
             role = state.role ?: PatientRole.Other,
             customRole = state.customRole,
             symptoms = state.symptoms,

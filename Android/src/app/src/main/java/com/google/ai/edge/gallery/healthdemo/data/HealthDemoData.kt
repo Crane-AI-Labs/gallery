@@ -229,6 +229,7 @@ data class ReferralInfo(
  */
 data class SavedAssessment(
     val id: String = UUID.randomUUID().toString(),
+    val sessionStartTime: Long = System.currentTimeMillis(),
     val timestamp: Long = System.currentTimeMillis(),
     val role: PatientRole,
     val customRole: String = "",
