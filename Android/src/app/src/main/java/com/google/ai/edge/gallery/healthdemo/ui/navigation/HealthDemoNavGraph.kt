@@ -65,6 +65,7 @@ fun HealthDemoNavGraph(
                 repository = repository,
                 viewModel = viewModel,
                 onStartAssessment = {
+                    AppSettings.touchLastActive(context)
                     navController.navigate(HealthDemoDestinations.PATIENT_ASSESSMENT)
                 },
                 onViewHistory = {

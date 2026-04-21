@@ -19,6 +19,8 @@ object AppSettings {
     private const val KEY_TOKENIZER_PATH = "tokenizer_path"
     private const val KEY_TOKENIZER_NAME = "tokenizer_name"
     private const val KEY_ROLE = "user_role"
+    private const val KEY_LAST_ACTIVE = "last_active_ms"
+    const val IDLE_TIMEOUT_MS = 30 * 60 * 1000L // 30 minutes
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -77,6 +79,15 @@ object AppSettings {
         prefs(context).edit()
             .putString(KEY_ROLE, role)
             .apply()
+    }
+
+    fun touchLastActive(context: Context) {
+        prefs(context).edit().putLong(KEY_LAST_ACTIVE, System.currentTimeMillis()).apply()
+    }
+
+    fun isIdleTimeoutExceeded(context: Context): Boolean {
+        val last = prefs(context).getLong(KEY_LAST_ACTIVE, 0L)
+        return last > 0L && System.currentTimeMillis() - last > IDLE_TIMEOUT_MS
     }
 
     // --- File helpers ---

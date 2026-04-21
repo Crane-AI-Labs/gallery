@@ -28,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -75,8 +76,16 @@ fun HealthDemoLandingScreen(
     var showRoleSheet by remember { mutableStateOf(false) }
     var showResumeSheet by remember { mutableStateOf(false) }
     var showInProgressDialog by remember { mutableStateOf(false) }
+    var showIdleTimeoutDialog by remember { mutableStateOf(false) }
     var selectedPausedId by remember { mutableStateOf<String?>(null) }
     var rememberRole by remember { mutableStateOf(AppSettings.getRole(context) != null) }
+
+    // #17: idle timeout — prompt re-confirmation after 30 min inactivity
+    LaunchedEffect(Unit) {
+        if (AppSettings.getRole(context) != null && AppSettings.isIdleTimeoutExceeded(context)) {
+            showIdleTimeoutDialog = true
+        }
+    }
 
     val selectedPaused = selectedPausedId?.let { repository.getPausedById(it) }
 
@@ -218,6 +227,25 @@ fun HealthDemoLandingScreen(
             }
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // #17: End Shift — visible only when a role is active
+        val uiStateForShift = viewModel.uiState.collectAsState().value
+        if (uiStateForShift.role != null || AppSettings.getRole(context) != null) {
+            androidx.compose.material3.TextButton(
+                onClick = {
+                    AppSettings.saveRole(context, null)
+                    viewModel.setRole(com.google.ai.edge.gallery.healthdemo.data.PatientRole.Other)
+                    viewModel.resetAssessment()
+                    rememberRole = false
+                    showRoleSheet = true
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text("End Shift / Switch User", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+            }
+        }
+
         Spacer(modifier = Modifier.weight(1f))
     }
 
@@ -253,6 +281,42 @@ fun HealthDemoLandingScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp)
                 ) { Text("Discard and start new", color = NavyBlue) }
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(12.dp)
+        )
+    }
+
+    // ── #17: Idle timeout dialog ───────────────────────────────────────────────
+    if (showIdleTimeoutDialog) {
+        val savedRoleName = AppSettings.getRole(context) ?: ""
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showIdleTimeoutDialog = false },
+            title = { Text("Still on shift as $savedRoleName?", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = { Text("The app has been idle for over 30 minutes. Confirm you're still the active clinician.", color = Color(0xFF444746), fontSize = 14.sp) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        AppSettings.touchLastActive(context)
+                        showIdleTimeoutDialog = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
+                ) { Text("Yes, still on shift", color = Color.White) }
+            },
+            dismissButton = {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = {
+                        AppSettings.saveRole(context, null)
+                        viewModel.resetAssessment()
+                        rememberRole = false
+                        showIdleTimeoutDialog = false
+                        showRoleSheet = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("No, switch user", color = NavyBlue) }
             },
             containerColor = Color.White,
             shape = RoundedCornerShape(12.dp)
