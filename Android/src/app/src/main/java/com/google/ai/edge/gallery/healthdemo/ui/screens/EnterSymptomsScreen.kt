@@ -71,6 +71,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.google.ai.edge.gallery.healthdemo.data.CRITICAL_DANGER_SIGNS
+import com.google.ai.edge.gallery.healthdemo.data.TraditionalMedicine
+import com.google.ai.edge.gallery.healthdemo.ui.components.DisclaimerBanner
 import com.google.ai.edge.gallery.healthdemo.data.DurationUnit
 import com.google.ai.edge.gallery.healthdemo.data.PatientRole
 import com.google.ai.edge.gallery.healthdemo.data.Sex
@@ -168,6 +170,7 @@ fun EnterSymptomsScreen(
             .imePadding()
             .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
     ) {
+        DisclaimerBanner()
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -236,14 +239,14 @@ fun EnterSymptomsScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Enter Symptom
-                Text("Enter Symptom", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
-                Text("Write or describe symptom in the text box below.", fontSize = 12.sp, color = Color(0xFF9E9E9E))
+                // Presenting Symptom(s)
+                Text("Presenting Symptom(s)", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                Text("Describe the main symptoms the patient is presenting with.", fontSize = 12.sp, color = Color(0xFF9E9E9E))
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = uiState.symptoms,
                     onValueChange = { viewModel.setSymptoms(it) },
-                    placeholder = { Text("Type a symptom...", color = Color(0xFF9E9E9E)) },
+                    placeholder = { Text("Describe the main symptoms the patient is presenting with", color = Color(0xFF9E9E9E)) },
                     modifier = Modifier.fillMaxWidth().height(110.dp),
                     shape = RoundedCornerShape(8.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -503,20 +506,35 @@ fun EnterSymptomsScreen(
                     Text("(Optional)", fontSize = 13.sp, color = Color(0xFF9E9E9E))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                VitalField("Temperature (°C)", "e.g 37.5", uiState.vitalSigns.temperature) {
+                VitalField("Temperature (C)", "e.g 37.5", uiState.vitalSigns.temperature) {
                     viewModel.setVitalSigns(uiState.vitalSigns.copy(temperature = it))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                VitalField("Pulse Rate (bpm)", "e.g 80", uiState.vitalSigns.pulseRate) {
-                    viewModel.setVitalSigns(uiState.vitalSigns.copy(pulseRate = it))
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                VitalField("Respiratory Rate", "e.g 16", uiState.vitalSigns.respiratoryRate) {
+                VitalField("Respiratory Rate (breaths/min)", "e.g 16", uiState.vitalSigns.respiratoryRate) {
                     viewModel.setVitalSigns(uiState.vitalSigns.copy(respiratoryRate = it))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                VitalField("Blood Pressure", "e.g 120/80", uiState.vitalSigns.bloodPressure) {
-                    viewModel.setVitalSigns(uiState.vitalSigns.copy(bloodPressure = it))
+                VitalField("Heart Rate (beats/min)", "e.g 80", uiState.vitalSigns.heartRate) {
+                    viewModel.setVitalSigns(uiState.vitalSigns.copy(heartRate = it))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = uiState.vitalSigns.bloodLoss,
+                    onValueChange = { viewModel.setVitalSigns(uiState.vitalSigns.copy(bloodLoss = it)) },
+                    placeholder = { Text("Blood Loss: You may use words or a number", color = Color(0xFF9E9E9E)) },
+                    modifier = Modifier.fillMaxWidth().height(80.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    label = { Text("Blood Loss", fontSize = 12.sp) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = NavyBlue,
+                        unfocusedBorderColor = Color(0xFFE0E0E0),
+                        focusedTextColor = Color.Black,
+                        unfocusedTextColor = Color.Black
+                    )
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                VitalField("SpO2 (%)", "e.g 98", uiState.vitalSigns.spO2) {
+                    viewModel.setVitalSigns(uiState.vitalSigns.copy(spO2 = it))
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -602,32 +620,91 @@ fun EnterSymptomsScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // "I have reviewed all danger signs" checkbox
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            1.dp,
+                            if (uiState.dangerSignsReviewed) NavyBlue else Color(0xFFE0E0E0),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable { viewModel.setDangerSignsReviewed(!uiState.dangerSignsReviewed) }
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .border(1.5.dp, if (uiState.dangerSignsReviewed) NavyBlue else Color(0xFFBDBDBD), RoundedCornerShape(4.dp))
+                            .background(if (uiState.dangerSignsReviewed) NavyBlue else Color.White, RoundedCornerShape(4.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (uiState.dangerSignsReviewed) Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        "I have reviewed all danger signs and warning signs and observed all that are present.",
+                        fontSize = 13.sp,
+                        color = Color(0xFF1F1F1F),
+                        lineHeight = 18.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Traditional Medicine
+                Text("Traditional Medicine", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Many patients use traditional medicine. Some home remedies may interfere with treatment.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF9E9E9E),
+                    lineHeight = 17.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TraditionalMedicine.entries.forEach { option ->
+                        val selected = uiState.traditionalMedicine == option
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selected) NavyBlue else Color.White,
+                            modifier = Modifier
+                                .weight(1f)
+                                .border(1.5.dp, if (selected) NavyBlue else Color(0xFFE0E0E0), RoundedCornerShape(8.dp))
+                                .clickable { viewModel.setTraditionalMedicine(option) }
+                        ) {
+                            Text(
+                                option.label,
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (selected) Color.White else Color(0xFF1F1F1F),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
 
         // Bottom buttons
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) {
-            LaunchedEffect(uiState.guidance) {
-                if (uiState.guidance != null && !uiState.isProcessing) {
-                    onContinue()
-                }
-            }
-
             Button(
-                onClick = { viewModel.getGuidance() },
-                enabled = canContinue && !uiState.isProcessing,
+                onClick = {
+                    viewModel.getGuidance()
+                    onContinue()
+                },
+                enabled = canContinue,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = NavyBlue, disabledContainerColor = Color(0xFF9E9E9E))
             ) {
-                if (uiState.isProcessing) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(uiState.processingStatus.ifEmpty { "Processing..." }, fontSize = 14.sp, color = Color.White)
-                } else {
-                    Text("Generate Guidance", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
-                }
+                Text("Generate Assessment", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
             }
 
             if (uiState.inferenceError != null) {
@@ -639,38 +716,6 @@ fun EnterSymptomsScreen(
         }
     }
 
-    // #02: full-screen overlay blocks all input during inference
-    if (uiState.isProcessing) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.45f))
-                .pointerInput(Unit) { detectTapGestures { /* consume all taps */ } },
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color.White,
-                modifier = Modifier.padding(32.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    CircularProgressIndicator(color = NavyBlue, modifier = Modifier.size(36.dp))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        uiState.processingStatus.ifEmpty { "Analysing case — please wait..." },
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF1F1F1F)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Do not close the app", fontSize = 12.sp, color = Color(0xFF9E9E9E))
-                }
-            }
-        }
-    }
     } // end Box wrapper
 
     // ── Danger/Warning Sign Sheet ──────────────────────────────────────────────

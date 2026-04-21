@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.ai.edge.gallery.healthdemo.data.PatientRole
+import com.google.ai.edge.gallery.healthdemo.ui.components.DisclaimerBanner
 import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
 
 private val NavyBlue = Color(0xFF0D1B5E)
@@ -64,6 +65,8 @@ fun SelectRoleSheet(
             .background(Color.White)
             .navigationBarsPadding()
     ) {
+        DisclaimerBanner()
+
         // Header row
         Row(
             modifier = Modifier
@@ -171,7 +174,7 @@ fun SelectRoleSheet(
             )
         ) {
             Text(
-                "Continue to Consultation",
+                "Continue To Assessment",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 color = Color.White

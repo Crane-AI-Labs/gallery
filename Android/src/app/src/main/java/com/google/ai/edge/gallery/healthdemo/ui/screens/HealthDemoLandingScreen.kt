@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.ai.edge.gallery.healthdemo.data.AppSettings
 import com.google.ai.edge.gallery.healthdemo.data.HealthDemoRepository
+import com.google.ai.edge.gallery.healthdemo.ui.components.DisclaimerBanner
 import com.google.ai.edge.gallery.healthdemo.data.PatientRole
 import com.google.ai.edge.gallery.healthdemo.data.PausedConsultation
 import com.google.ai.edge.gallery.healthdemo.viewmodel.HealthDemoViewModel
@@ -94,10 +95,18 @@ fun HealthDemoLandingScreen(
             .fillMaxSize()
             .background(Color.White)
             .statusBarsPadding()
-            .navigationBarsPadding()
-            .padding(horizontal = 24.dp),
+            .navigationBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        DisclaimerBanner()
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+
         Spacer(modifier = Modifier.weight(1f))
 
         Text(
@@ -247,7 +256,8 @@ fun HealthDemoLandingScreen(
         }
 
         Spacer(modifier = Modifier.weight(1f))
-    }
+        } // end inner Column
+    } // end outer Column
 
     // ── BUG-06: In-progress assessment gate dialog ─────────────────────────────
     if (showInProgressDialog) {
