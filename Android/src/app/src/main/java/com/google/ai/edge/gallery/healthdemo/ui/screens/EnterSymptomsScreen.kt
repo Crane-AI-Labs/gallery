@@ -65,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,6 +93,13 @@ fun EnterSymptomsScreen(
     val hasImage = uiState.capturedImageBytes != null
     val canContinue = (uiState.symptoms.isNotBlank() || hasImage) && uiState.age != null
     val focusManager = LocalFocusManager.current
+    val view = LocalView.current
+
+    // #01: hold screen-on only while this consultation screen is active
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
 
     var durationUnitExpanded by remember { mutableStateOf(false) }
 
@@ -146,6 +154,7 @@ fun EnterSymptomsScreen(
     val confirmedDangerCount = uiState.confirmedSigns.count { it in CRITICAL_DANGER_SIGNS }
     val confirmedWarningCount = uiState.confirmedSigns.count { it in WARNING_SIGNS }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -575,6 +584,40 @@ fun EnterSymptomsScreen(
             }
         }
     }
+
+    // #02: full-screen overlay blocks all input during inference
+    if (uiState.isProcessing) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.45f))
+                .pointerInput(Unit) { detectTapGestures { /* consume all taps */ } },
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(color = NavyBlue, modifier = Modifier.size(36.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        uiState.processingStatus.ifEmpty { "Analysing case — please wait..." },
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF1F1F1F)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Do not close the app", fontSize = 12.sp, color = Color(0xFF9E9E9E))
+                }
+            }
+        }
+    }
+    } // end Box wrapper
 
     // ── Danger/Warning Sign Sheet ──────────────────────────────────────────────
     val pendingSign = uiState.pendingSignAlert

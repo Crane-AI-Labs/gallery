@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,6 +75,14 @@ fun GuidanceScreen(
     val guidance = uiState.guidance ?: return
     val isSaved = uiState.savedAssessment != null
     var showNewAssessmentDialog by remember { mutableStateOf(false) }
+    var showReturnHomeDialog by remember { mutableStateOf(false) }
+    val view = LocalView.current
+
+    // #01: hold screen-on during active guidance review
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
     var showReferralSheet by remember { mutableStateOf(false) }
     var showPauseSheet by remember { mutableStateOf(false) }
 
@@ -127,6 +136,36 @@ fun GuidanceScreen(
                 ) {
                     Text("Discard and Start New", color = NavyBlue)
                 }
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(12.dp)
+        )
+    }
+
+    // #03: Return to Home confirmation — prevents silent discard
+    if (showReturnHomeDialog) {
+        AlertDialog(
+            onDismissRequest = { showReturnHomeDialog = false },
+            title = { Text("Return to Home?", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = { Text("The assessment has been saved on this device. You can resume it from Case History.", color = Color(0xFF444746), fontSize = 14.sp) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showReturnHomeDialog = false
+                        viewModel.resetAssessment()
+                        onReturnHome()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
+                ) { Text("Return to Home", color = Color.White) }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showReturnHomeDialog = false },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("Stay here", color = NavyBlue) }
             },
             containerColor = Color.White,
             shape = RoundedCornerShape(12.dp)
@@ -403,7 +442,7 @@ fun GuidanceScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             TextButton(
-                onClick = onReturnHome,
+                onClick = { showReturnHomeDialog = true },
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             ) {
                 Text("Return To Home", color = NavyBlue, fontSize = 15.sp, fontWeight = FontWeight.Medium)
