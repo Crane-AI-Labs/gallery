@@ -170,7 +170,7 @@ fun SavedRecordsScreen(
         ModalBottomSheet(
             onDismissRequest = { selectedAssessmentId = null },
             sheetState = detailSheetState,
-            containerColor = Color.White
+            containerColor = Color.White,
         ) {
             AssessmentDetailSheet(
                 assessment = selectedAssessment,

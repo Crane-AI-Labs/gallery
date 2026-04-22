@@ -114,14 +114,21 @@ fun EnterSymptomsScreen(
 
     val context = LocalContext.current
     var audioPermissionGranted by remember { mutableStateOf(false) }
+    var cameraPermissionGranted by remember { mutableStateOf(false) }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> audioPermissionGranted = granted }
+
+    // Renamed from permissionLauncher for audio — kept for back-compat
+    val permissionLauncher = audioPermissionLauncher
 
     LaunchedEffect(Unit) {
         audioPermissionGranted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        cameraPermissionGranted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
     }
 
@@ -138,7 +145,7 @@ fun EnterSymptomsScreen(
         }
     }
 
-    // BUG-04: camera capture support
+    // Camera capture — must be declared before cameraPermissionLauncher
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
@@ -151,6 +158,18 @@ fun EnterSymptomsScreen(
             } catch (e: Exception) {
                 android.util.Log.e("EnterSymptoms", "Failed to read camera image", e)
             }
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        cameraPermissionGranted = granted
+        if (granted) {
+            val photoFile = File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", photoFile)
+            cameraUri = uri
+            cameraLauncher.launch(uri)
         }
     }
 
@@ -294,10 +313,14 @@ fun EnterSymptomsScreen(
                     }
                     OutlinedButton(
                         onClick = {
-                            val photoFile = File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", photoFile)
-                            cameraUri = uri
-                            cameraLauncher.launch(uri)
+                            if (!cameraPermissionGranted) {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            } else {
+                                val photoFile = File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
+                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", photoFile)
+                                cameraUri = uri
+                                cameraLauncher.launch(uri)
+                            }
                         },
                         shape = RoundedCornerShape(8.dp),
                         border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
@@ -724,7 +747,7 @@ fun EnterSymptomsScreen(
         ModalBottomSheet(
             onDismissRequest = { viewModel.dismissSignForNow() },
             sheetState = dangerSheetState,
-            containerColor = Color.White
+            containerColor = Color.White,
         ) {
             if (uiState.pendingSignIsDanger) {
                 DangerSignAlertSheet(

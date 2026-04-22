@@ -487,7 +487,7 @@ fun GuidanceScreen(
         ModalBottomSheet(
             onDismissRequest = { showReferralSheet = false },
             sheetState = referralSheetState,
-            containerColor = Color.White
+            containerColor = Color.White,
         ) {
             ReferralSheet(
                 onSave = { referral: ReferralInfo ->
@@ -511,7 +511,7 @@ fun GuidanceScreen(
         ModalBottomSheet(
             onDismissRequest = { showPauseSheet = false },
             sheetState = pauseSheetState,
-            containerColor = Color.White
+            containerColor = Color.White,
         ) {
             PauseConsultationSheet(
                 viewModel = viewModel,

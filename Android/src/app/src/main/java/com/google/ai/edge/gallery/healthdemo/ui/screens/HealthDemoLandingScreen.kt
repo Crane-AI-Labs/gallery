@@ -338,7 +338,7 @@ fun HealthDemoLandingScreen(
         ModalBottomSheet(
             onDismissRequest = { showRoleSheet = false },
             sheetState = roleSheetState,
-            containerColor = Color.White
+            containerColor = Color.White,
         ) {
             SelectRoleSheet(
                 viewModel = viewModel,
@@ -369,7 +369,7 @@ fun HealthDemoLandingScreen(
         ModalBottomSheet(
             onDismissRequest = { showResumeSheet = false },
             sheetState = resumeSheetState,
-            containerColor = Color.White
+            containerColor = Color.White,
         ) {
             ResumeConsultationSheet(
                 paused = selectedPaused,
