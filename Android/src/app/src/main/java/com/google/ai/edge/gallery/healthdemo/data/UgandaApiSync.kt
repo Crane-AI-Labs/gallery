@@ -78,10 +78,15 @@ object UgandaApiSync {
             "age" to assessment.age?.label,
             "sex" to assessment.sex?.label,
             "vital_signs" to mapOf(
+                // VitalSigns was restructured for the updated wireframes:
+                // pulseRate → heartRate (semantic rename), bloodPressure dropped,
+                // bloodLoss + spO2 added. Server's `pulse_rate` column now
+                // carries the heart-rate reading.
                 "temperature" to assessment.vitalSigns.temperature,
-                "pulse_rate" to assessment.vitalSigns.pulseRate,
-                "blood_pressure" to assessment.vitalSigns.bloodPressure,
+                "pulse_rate" to assessment.vitalSigns.heartRate,
                 "respiratory_rate" to assessment.vitalSigns.respiratoryRate,
+                "blood_loss" to assessment.vitalSigns.bloodLoss,
+                "spo2" to assessment.vitalSigns.spO2,
             ),
             "confirmed_signs" to assessment.confirmedSigns.toList(),
             "guidance" to mapOf(
