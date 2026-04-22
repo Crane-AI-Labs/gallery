@@ -114,50 +114,38 @@ fun EnterSymptomsScreen(
 
     val context = LocalContext.current
     var audioPermissionGranted by remember { mutableStateOf(false) }
+    var cameraPermissionGranted by remember { mutableStateOf(false) }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> audioPermissionGranted = granted }
 
-    // Location permission
+    // Renamed from permissionLauncher for audio — kept for back-compat
+    val permissionLauncher = audioPermissionLauncher
+
+    // Location permission — best-effort; GPS starts capturing as soon as
+    // it's granted so the coordinates are ready by the time inference runs.
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { _ -> /* result doesn't matter — location is best-effort */ }
+    ) { granted -> if (granted) viewModel.startLocationCapture() }
 
     LaunchedEffect(Unit) {
         audioPermissionGranted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
+        cameraPermissionGranted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
 
-        // Request location permission once (non-blocking, best-effort)
-        if (!com.google.ai.edge.gallery.healthdemo.data.LocationCapture.hasPermission(context)) {
-            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        } else {
-            // Permission already granted — start capturing early
+        if (com.google.ai.edge.gallery.healthdemo.data.LocationCapture.hasPermission(context)) {
             viewModel.startLocationCapture()
+        } else {
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
     }
 
-    // Image capture — two separate contracts (camera + gallery)
-    // because no Android API reliably combines both in a single native UI on Samsung
-    var cameraImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
-    var showImageSheet by remember { mutableStateOf(false) }
-
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success && cameraImageUri != null) {
-            try {
-                val bytes = context.contentResolver.openInputStream(cameraImageUri!!)?.readBytes()
-                if (bytes != null) viewModel.setCapturedImage(bytes)
-            } catch (e: Exception) {
-                android.util.Log.e("EnterSymptoms", "Failed to read camera image", e)
-            }
-        }
-    }
-
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
             try {
@@ -169,7 +157,7 @@ fun EnterSymptomsScreen(
         }
     }
 
-    // BUG-04: camera capture support
+    // Camera capture — must be declared before cameraPermissionLauncher
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
@@ -182,6 +170,18 @@ fun EnterSymptomsScreen(
             } catch (e: Exception) {
                 android.util.Log.e("EnterSymptoms", "Failed to read camera image", e)
             }
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        cameraPermissionGranted = granted
+        if (granted) {
+            val photoFile = File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", photoFile)
+            cameraUri = uri
+            cameraLauncher.launch(uri)
         }
     }
 
@@ -325,10 +325,14 @@ fun EnterSymptomsScreen(
                     }
                     OutlinedButton(
                         onClick = {
-                            val photoFile = File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", photoFile)
-                            cameraUri = uri
-                            cameraLauncher.launch(uri)
+                            if (!cameraPermissionGranted) {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            } else {
+                                val photoFile = File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
+                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", photoFile)
+                                cameraUri = uri
+                                cameraLauncher.launch(uri)
+                            }
                         },
                         shape = RoundedCornerShape(8.dp),
                         border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
@@ -502,7 +506,7 @@ fun EnterSymptomsScreen(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Sex.entries.filter { it != Sex.Other }.forEach { sexOption ->
+                    Sex.entries.forEach { sexOption ->
                         val selected = uiState.sex == sexOption
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -750,80 +754,12 @@ fun EnterSymptomsScreen(
     } // end Box wrapper
 
     // ── Danger/Warning Sign Sheet ──────────────────────────────────────────────
-    // ── Image Source Sheet ─────────────────────────────────────────────────────
-    if (showImageSheet) {
-        val imageSheetState = rememberModalBottomSheetState()
-        ModalBottomSheet(
-            onDismissRequest = { showImageSheet = false },
-            sheetState = imageSheetState,
-            containerColor = Color.White
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 32.dp)
-            ) {
-                Text(
-                    "Add Image",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1F1F1F),
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
-                )
-
-                // Camera option
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            showImageSheet = false
-                            val photoFile = java.io.File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
-                            cameraImageUri = androidx.core.content.FileProvider.getUriForFile(
-                                context, "${context.packageName}.provider", photoFile
-                            )
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                cameraLauncher.launch(cameraImageUri!!)
-                            } else {
-                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        }
-                        .padding(horizontal = 24.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = NavyBlue, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text("Take Photo", fontSize = 16.sp, color = Color(0xFF1F1F1F))
-                }
-
-                // Gallery option
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            showImageSheet = false
-                            galleryLauncher.launch(
-                                androidx.activity.result.PickVisualMediaRequest(
-                                    ActivityResultContracts.PickVisualMedia.ImageOnly
-                                )
-                            )
-                        }
-                        .padding(horizontal = 24.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = NavyBlue, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text("Choose from Gallery", fontSize = 16.sp, color = Color(0xFF1F1F1F))
-                }
-            }
-        }
-    }
-
     val pendingSign = uiState.pendingSignAlert
     if (pendingSign != null) {
         ModalBottomSheet(
             onDismissRequest = { viewModel.dismissSignForNow() },
             sheetState = dangerSheetState,
-            containerColor = Color.White
+            containerColor = Color.White,
         ) {
             if (uiState.pendingSignIsDanger) {
                 DangerSignAlertSheet(
