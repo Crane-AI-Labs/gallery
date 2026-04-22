@@ -18,6 +18,7 @@ import com.google.ai.edge.gallery.healthdemo.ui.screens.ClinicianConfirmationScr
 import com.google.ai.edge.gallery.healthdemo.ui.screens.ConsentScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.ConsultationSavedScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.EnterSymptomsScreen
+import com.google.ai.edge.gallery.healthdemo.ui.screens.GeneratingAssessmentScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.FeedbackScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.GuidanceScreen
 import com.google.ai.edge.gallery.healthdemo.ui.screens.HealthDemoLandingScreen
@@ -30,6 +31,7 @@ object HealthDemoDestinations {
     const val LANDING = "health_demo_landing"
     const val SETTINGS = "health_demo_settings"
     const val PATIENT_ASSESSMENT = "health_demo_patient_assessment"
+    const val GENERATING_ASSESSMENT = "health_demo_generating"
     const val GUIDANCE = "health_demo_guidance"
     const val CLINICIAN_CONFIRMATION = "health_demo_clinician_confirmation"
     const val CASE_SAVED = "health_demo_case_saved/{caseId}"
@@ -82,6 +84,7 @@ fun HealthDemoNavGraph(
                 repository = repository,
                 viewModel = viewModel,
                 onStartAssessment = {
+                    AppSettings.touchLastActive(context)
                     navController.navigate(HealthDemoDestinations.PATIENT_ASSESSMENT)
                 },
                 onViewHistory = {
@@ -106,10 +109,22 @@ fun HealthDemoNavGraph(
             EnterSymptomsScreen(
                 viewModel = viewModel,
                 onContinue = {
-                    navController.navigate(HealthDemoDestinations.GUIDANCE)
+                    navController.navigate(HealthDemoDestinations.GENERATING_ASSESSMENT)
                 },
                 onViewSavedResults = {
                     navController.navigate(HealthDemoDestinations.SAVED_RESULTS)
+                }
+            )
+        }
+
+        // ── Generating Assessment ─────────────────────────────────────────────
+        composable(HealthDemoDestinations.GENERATING_ASSESSMENT) {
+            GeneratingAssessmentScreen(
+                viewModel = viewModel,
+                onReady = {
+                    navController.navigate(HealthDemoDestinations.GUIDANCE) {
+                        popUpTo(HealthDemoDestinations.GENERATING_ASSESSMENT) { inclusive = true }
+                    }
                 }
             )
         }
@@ -145,6 +160,9 @@ fun HealthDemoNavGraph(
                     }
                 },
                 onSavePausedAndGoHome = { paused ->
+                    // BUG-03: remove auto-saved assessment before saving as paused
+                    val autoSavedId = viewModel.uiState.value.savedAssessment?.id
+                    if (autoSavedId != null) repository.remove(autoSavedId)
                     repository.savePaused(paused)
                     viewModel.resetAssessment()
                     navController.navigate(HealthDemoDestinations.LANDING) {
@@ -187,6 +205,7 @@ fun HealthDemoNavGraph(
         // ── Consultation Saved ────────────────────────────────────────────────
         composable(HealthDemoDestinations.CONSULTATION_SAVED) {
             ConsultationSavedScreen(
+                repository = repository,
                 onStartNew = {
                     navController.navigate(HealthDemoDestinations.PATIENT_ASSESSMENT) {
                         popUpTo(HealthDemoDestinations.LANDING)

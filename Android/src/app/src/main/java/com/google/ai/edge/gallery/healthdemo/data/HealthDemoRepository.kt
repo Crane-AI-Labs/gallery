@@ -69,6 +69,10 @@ class HealthDemoRepository(private val context: Context) {
         }
     }
 
+    fun remove(id: String) {
+        _savedAssessments.value = _savedAssessments.value.filter { it.id != id }
+    }
+
     fun updateConfirmation(id: String, confirmation: ClinicianConfirmation, referral: ReferralInfo?) {
         scope.launch {
             val entity = assessmentDao.getById(id) ?: return@launch

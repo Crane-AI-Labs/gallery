@@ -18,18 +18,21 @@ enum class DurationUnit(val label: String) {
 // ─── Signs & Symptoms ─────────────────────────────────────────────────────────
 
 val CRITICAL_DANGER_SIGNS = listOf(
-    "Unable to drink/breastfeed",
     "Convulsions",
-    "Lethargic/unconscious",
+    "Unable to drink/breastfeed",
+    "Violent vomiting",
+    "Lethargic/unresponsive",
     "Severe respiratory distress",
-    "Cardiac cyanosis"
+    "Bulging fontanelle (infant)",
+    "Fever with rash",
+    "Necrosis/unable to suck"
 )
 
 val WARNING_SIGNS = listOf(
     "Chest indrawing",
     "Poor skin turgor",
     "Sunken eyes",
-    "Reduced feeding / poor appetite",
+    "Reduced feeding",
     "Prolonged capillary refill"
 )
 
@@ -107,10 +110,17 @@ enum class Sex(val label: String) {
 
 data class VitalSigns(
     val temperature: String = "",
-    val pulseRate: String = "",
-    val bloodPressure: String = "",
-    val respiratoryRate: String = ""
+    val heartRate: String = "",
+    val respiratoryRate: String = "",
+    val bloodLoss: String = "",
+    val spO2: String = ""
 )
+
+enum class TraditionalMedicine(val label: String) {
+    Yes("Yes"),
+    No("No"),
+    Unknown("Unknown")
+}
 
 /**
  * Represents the full guidance result, matching the wireframe layout:
@@ -126,17 +136,18 @@ data class HealthGuidance(
     val triageLevel: String = "",
     val confidence: String = "",
     val redFlags: List<String> = emptyList(),
+    val whyItMatters: String = ""
 )
 
 // ─── Pause / Resume ──────────────────────────────────────────────────────────
 
 enum class PauseReason(val label: String) {
-    SentToLab("Sent to lab"),
-    ReferralPending("Referral pending"),
-    AwaitingImaging("Awaiting imaging"),
-    PatientUnavailable("Patient unavailable"),
-    ShiftHandover("Shift handover"),
-    AwaitingFamily("Awaiting family")
+    NeedsLabTests("Patient needs lab tests"),
+    WaitingSeniorClinician("Waiting for senior clinician"),
+    CollectMedication("Patient went to collect medication"),
+    EquipmentUnavailable("Equipment not available"),
+    CrisisStabilisation("Patient crisis need stabilisation"),
+    Other("Other")
 }
 
 data class PausedConsultation(
@@ -228,6 +239,7 @@ data class ReferralInfo(
  */
 data class SavedAssessment(
     val id: String = UUID.randomUUID().toString(),
+    val sessionStartTime: Long = System.currentTimeMillis(),
     val timestamp: Long = System.currentTimeMillis(),
     val role: PatientRole,
     val customRole: String = "",
@@ -238,6 +250,8 @@ data class SavedAssessment(
     val sex: Sex?,
     val vitalSigns: VitalSigns = VitalSigns(),
     val confirmedSigns: Set<String> = emptySet(),
+    val traditionalMedicine: TraditionalMedicine? = null,
+    val treatmentAdministered: String = "",
     val guidance: HealthGuidance,
     val clinicianConfirmation: ClinicianConfirmation? = null,
     val referralInfo: ReferralInfo? = null,

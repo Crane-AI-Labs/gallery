@@ -13,7 +13,8 @@ object SymptomGraphDatabase {
         val keywords: List<String>,
         val possibleCondition: String,
         val suggestedTreatment: List<String>,
-        val recommendedNextSteps: List<String>
+        val recommendedNextSteps: List<String>,
+        val whyItMatters: String = ""
     )
 
     private val graph: List<GuidanceNode> = listOf(

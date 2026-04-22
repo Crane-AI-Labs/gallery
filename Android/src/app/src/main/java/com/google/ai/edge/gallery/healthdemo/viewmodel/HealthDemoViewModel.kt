@@ -17,6 +17,7 @@ import com.google.ai.edge.gallery.healthdemo.data.ClinicalPrompt
 import com.google.ai.edge.gallery.healthdemo.data.GuidanceValidator
 import com.google.ai.edge.gallery.healthdemo.data.ImagePreprocessor
 import com.google.ai.edge.gallery.healthdemo.data.MedAsrEngine
+import com.google.ai.edge.gallery.healthdemo.data.TraditionalMedicine
 import com.google.ai.edge.gallery.healthdemo.data.VitalSigns
 import com.google.ai.edge.gallery.llm.DeviceInfo
 import com.google.ai.edge.gallery.llm.LlamaCpp
@@ -50,6 +51,7 @@ data class HealthDemoUiState(
     val customRole: String = "",
 
     // Patient assessment form
+    val sessionStartTime: Long = 0L,
     val symptoms: String = "",
     val durationValue: String = "",
     val durationUnit: DurationUnit = DurationUnit.Days,
@@ -64,11 +66,19 @@ data class HealthDemoUiState(
     // Signs & Symptoms
     val checkedSigns: Set<String> = emptySet(),
     val confirmedSigns: Set<String> = emptySet(),
+    val dangerSignsReviewed: Boolean = false,
     val pendingSignAlert: String? = null,
     val pendingSignIsDanger: Boolean = false,
 
+    // Traditional medicine
+    val traditionalMedicine: TraditionalMedicine? = null,
+
     // Guidance result
     val guidance: HealthGuidance? = null,
+
+    // Clinician confirmation fields (embedded in guidance screen)
+    val clinicianAcknowledged: Boolean = false,
+    val treatmentAdministered: String = "",
 
     // Saved assessment (set after save)
     val savedAssessment: SavedAssessment? = null,
@@ -125,6 +135,12 @@ class HealthDemoViewModel @Inject constructor(
         }
     }
 
+    fun markSessionStart() {
+        if (_uiState.value.sessionStartTime == 0L) {
+            _uiState.update { it.copy(sessionStartTime = System.currentTimeMillis()) }
+        }
+    }
+
     fun setSymptoms(symptoms: String) {
         _uiState.update { it.copy(symptoms = symptoms) }
     }
@@ -139,6 +155,22 @@ class HealthDemoViewModel @Inject constructor(
 
     fun setSex(sex: Sex) {
         _uiState.update { it.copy(sex = sex) }
+    }
+
+    fun setTraditionalMedicine(tm: TraditionalMedicine) {
+        _uiState.update { it.copy(traditionalMedicine = tm) }
+    }
+
+    fun setDangerSignsReviewed(reviewed: Boolean) {
+        _uiState.update { it.copy(dangerSignsReviewed = reviewed) }
+    }
+
+    fun setClinicalAcknowledged(ack: Boolean) {
+        _uiState.update { it.copy(clinicianAcknowledged = ack) }
+    }
+
+    fun setTreatmentAdministered(text: String) {
+        _uiState.update { it.copy(treatmentAdministered = text) }
     }
 
     fun setCapturedImage(imageBytes: ByteArray?) {
@@ -482,10 +514,11 @@ class HealthDemoViewModel @Inject constructor(
 
     private fun formatVitals(vitalSigns: VitalSigns): String {
         return buildString {
-            if (vitalSigns.temperature.isNotBlank()) append("Temperature: ${vitalSigns.temperature}°C, ")
-            if (vitalSigns.pulseRate.isNotBlank()) append("Pulse: ${vitalSigns.pulseRate} bpm, ")
-            if (vitalSigns.bloodPressure.isNotBlank()) append("BP: ${vitalSigns.bloodPressure}, ")
-            if (vitalSigns.respiratoryRate.isNotBlank()) append("RR: ${vitalSigns.respiratoryRate}/min")
+            if (vitalSigns.temperature.isNotBlank()) append("Temp: ${vitalSigns.temperature}°C, ")
+            if (vitalSigns.heartRate.isNotBlank()) append("HR: ${vitalSigns.heartRate} bpm, ")
+            if (vitalSigns.respiratoryRate.isNotBlank()) append("RR: ${vitalSigns.respiratoryRate}/min, ")
+            if (vitalSigns.spO2.isNotBlank()) append("SpO2: ${vitalSigns.spO2}%, ")
+            if (vitalSigns.bloodLoss.isNotBlank()) append("Blood loss: ${vitalSigns.bloodLoss}")
         }.trimEnd(',', ' ').ifEmpty { "Not recorded" }
     }
 
@@ -501,6 +534,7 @@ class HealthDemoViewModel @Inject constructor(
     fun buildSavedAssessment(): SavedAssessment {
         val state = _uiState.value
         return SavedAssessment(
+            sessionStartTime = if (state.sessionStartTime != 0L) state.sessionStartTime else System.currentTimeMillis(),
             role = state.role ?: PatientRole.Other,
             customRole = state.customRole,
             symptoms = state.symptoms,
@@ -510,6 +544,8 @@ class HealthDemoViewModel @Inject constructor(
             sex = state.sex,
             vitalSigns = state.vitalSigns,
             confirmedSigns = state.confirmedSigns,
+            traditionalMedicine = state.traditionalMedicine,
+            treatmentAdministered = state.treatmentAdministered,
             guidance = state.guidance!!,
             latitude = state.capturedLocation?.latitude,
             longitude = state.capturedLocation?.longitude,

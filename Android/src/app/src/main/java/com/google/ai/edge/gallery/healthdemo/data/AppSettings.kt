@@ -20,6 +20,7 @@ object AppSettings {
     private const val KEY_TOKENIZER_NAME = "tokenizer_name"
     private const val KEY_ROLE = "user_role"
     private const val KEY_CONSENT_VERSION = "consent_version_accepted"
+    private const val KEY_LAST_ACTIVE = "last_active_ms"
 
     /**
      * Bump this when the consent copy changes materially (new data practices,
@@ -30,6 +31,9 @@ object AppSettings {
      * pinning notice.
      */
     const val CURRENT_CONSENT_VERSION = 2
+
+    /** Idle timeout before the landing screen re-confirms who's on shift. */
+    const val IDLE_TIMEOUT_MS = 30 * 60 * 1000L // 30 minutes
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -97,6 +101,17 @@ object AppSettings {
 
     fun acceptConsent(context: Context) {
         prefs(context).edit().putInt(KEY_CONSENT_VERSION, CURRENT_CONSENT_VERSION).apply()
+    }
+
+    // --- Idle / shift-change tracking ---
+
+    fun touchLastActive(context: Context) {
+        prefs(context).edit().putLong(KEY_LAST_ACTIVE, System.currentTimeMillis()).apply()
+    }
+
+    fun isIdleTimeoutExceeded(context: Context): Boolean {
+        val last = prefs(context).getLong(KEY_LAST_ACTIVE, 0L)
+        return last > 0L && System.currentTimeMillis() - last > IDLE_TIMEOUT_MS
     }
 
     // --- File helpers ---
