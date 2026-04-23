@@ -128,7 +128,13 @@ fun AssessmentDetailSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Duration + Age
+            // Duration + Age + Sex
+            val savedAgeDisplay = buildString {
+                val y = assessment.ageYears.trim().toIntOrNull() ?: 0
+                val m = assessment.ageMonths.trim().toIntOrNull() ?: 0
+                if (y > 0) append("$y yr${if (y == 1) "" else "s"}")
+                if (m > 0) { if (isNotEmpty()) append(", "); append("$m mo") }
+            }.ifBlank { null }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (assessment.durationValue.isNotBlank()) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -136,11 +142,40 @@ fun AssessmentDetailSheet(
                         Text("${assessment.durationValue} ${assessment.durationUnit.label}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F1F1F))
                     }
                 }
-                if (assessment.age != null) {
+                if (savedAgeDisplay != null) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Age", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+                        Text(savedAgeDisplay, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F1F1F))
+                    }
+                } else if (assessment.age != null) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Age Group", fontSize = 13.sp, color = Color(0xFF9E9E9E))
                         Text(assessment.age.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F1F1F))
                     }
+                }
+            }
+            if (savedAgeDisplay != null && assessment.age != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Age Group", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+                        Text(assessment.age.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F1F1F))
+                    }
+                    if (assessment.sex != null) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Sex", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+                            Text(assessment.sex.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F1F1F))
+                        }
+                    }
+                }
+            } else if (assessment.sex != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Sex", fontSize = 13.sp, color = Color(0xFF9E9E9E))
+                        Text(assessment.sex.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F1F1F))
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
 

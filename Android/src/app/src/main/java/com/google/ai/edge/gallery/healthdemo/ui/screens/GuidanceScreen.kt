@@ -21,10 +21,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -52,7 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -93,11 +92,14 @@ fun GuidanceScreen(
     val referralSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pauseSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    val view = LocalView.current
+    val context = LocalContext.current
 
     DisposableEffect(Unit) {
-        view.keepScreenOn = true
-        onDispose { view.keepScreenOn = false }
+        val window = (context as? android.app.Activity)?.window
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     // Auto-save when guidance is first displayed
@@ -124,6 +126,8 @@ fun GuidanceScreen(
     }
 
     val hasDangerSigns = uiState.confirmedSigns.isNotEmpty()
+    val isHighSeverityTriage = guidance.triageLevel.contains("Emergency", ignoreCase = true) ||
+        guidance.triageLevel.contains("Urgent", ignoreCase = true)
 
     // #03: Return to Home confirmation
     if (showReturnHomeDialog) {
@@ -260,7 +264,7 @@ fun GuidanceScreen(
                         )
                     }
                 }
-            } else {
+            } else if (!isHighSeverityTriage) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = Color(0xFFE8F5E9),
@@ -287,9 +291,19 @@ fun GuidanceScreen(
             // Patient Summary
             Text("Patient Summary", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
             Spacer(modifier = Modifier.height(8.dp))
+            val ageDisplay = buildString {
+                val y = uiState.ageYears.trim().toIntOrNull() ?: 0
+                val m = uiState.ageMonths.trim().toIntOrNull() ?: 0
+                if (y > 0) append("$y yr${if (y == 1) "" else "s"}")
+                if (m > 0) { if (isNotEmpty()) append(", "); append("$m mo") }
+            }.ifBlank { null }
             Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFF9F9F9), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     SummaryRow("Symptoms", uiState.symptoms.ifBlank { "—" })
+                    if (ageDisplay != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        SummaryRow("Age", ageDisplay)
+                    }
                     if (uiState.age != null) {
                         Spacer(modifier = Modifier.height(6.dp))
                         SummaryRow("Age Group", uiState.age!!.label)
@@ -461,36 +475,46 @@ fun GuidanceScreen(
 
             Button(
                 onClick = onConfirmOutcome,
+                enabled = uiState.clinicianAcknowledged,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = NavyBlue)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NavyBlue,
+                    disabledContainerColor = Color(0xFFE0E0E0)
+                )
             ) {
                 Text("Save Assessment", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { showReferralSheet = true },
-                    modifier = Modifier.weight(1f).height(44.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, NavyBlue)
-                ) {
-                    Icon(Icons.Default.Send, contentDescription = null, tint = NavyBlue, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Refer Patient", fontSize = 13.sp, color = NavyBlue, fontWeight = FontWeight.Medium)
-                }
-                OutlinedButton(
-                    onClick = { showPauseSheet = true },
-                    modifier = Modifier.weight(1f).height(44.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, OrangeGold)
-                ) {
-                    Icon(Icons.Default.Pause, contentDescription = null, tint = OrangeGold, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Pause Assessment", fontSize = 13.sp, color = OrangeGold, fontWeight = FontWeight.Medium)
-                }
+            OutlinedButton(
+                onClick = { showReferralSheet = true },
+                enabled = uiState.clinicianAcknowledged,
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (uiState.clinicianAcknowledged) Color(0xFFBDBDBD) else Color(0xFFE0E0E0)
+                )
+            ) {
+                Text(
+                    "Refer Patient",
+                    fontSize = 14.sp,
+                    color = if (uiState.clinicianAcknowledged) Color(0xFF1F1F1F) else Color(0xFFBDBDBD),
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = { showPauseSheet = true },
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, OrangeGold)
+            ) {
+                Text("Pause Assessment", fontSize = 14.sp, color = OrangeGold, fontWeight = FontWeight.Medium)
             }
 
 
@@ -498,9 +522,16 @@ fun GuidanceScreen(
 
             TextButton(
                 onClick = { showReturnHomeDialog = true },
-                modifier = Modifier.align(Alignment.CenterHorizontally)
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Return to Home", color = Color(0xFF9E9E9E), fontSize = 14.sp)
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    tint = Color(0xFF9E9E9E),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Back to Home", color = Color(0xFF9E9E9E), fontSize = 14.sp)
             }
         }
     }

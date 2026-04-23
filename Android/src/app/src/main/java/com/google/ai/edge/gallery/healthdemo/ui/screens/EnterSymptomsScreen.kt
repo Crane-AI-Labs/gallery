@@ -65,7 +65,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,12 +95,15 @@ fun EnterSymptomsScreen(
     val hasImage = uiState.capturedImageBytes != null
     val canContinue = (uiState.symptoms.isNotBlank() || hasImage) && uiState.age != null && uiState.sex != null
     val focusManager = LocalFocusManager.current
-    val view = LocalView.current
+    val context = LocalContext.current
 
     // #01: hold screen-on only while this consultation screen is active
     androidx.compose.runtime.DisposableEffect(Unit) {
-        view.keepScreenOn = true
-        onDispose { view.keepScreenOn = false }
+        val window = (context as? android.app.Activity)?.window
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     // #07: record session start at screen open, not at first keystroke
@@ -112,7 +114,6 @@ fun EnterSymptomsScreen(
     val dangerSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
 
-    val context = LocalContext.current
     var audioPermissionGranted by remember { mutableStateOf(false) }
     var cameraPermissionGranted by remember { mutableStateOf(false) }
 
