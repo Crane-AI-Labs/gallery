@@ -76,6 +76,8 @@ object UgandaApiSync {
             "duration_value" to assessment.durationValue,
             "duration_unit" to assessment.durationUnit.name,
             "age" to assessment.age?.label,
+            "age_years" to assessment.ageYears,
+            "age_months" to assessment.ageMonths,
             "sex" to assessment.sex?.label,
             "vital_signs" to mapOf(
                 // VitalSigns was restructured for the updated wireframes:
@@ -137,6 +139,8 @@ object UgandaApiSync {
             "role" to paused.role.name,
             "symptoms" to symptomsRedaction.text,
             "age" to paused.age?.label,
+            "age_years" to paused.ageYears,
+            "age_months" to paused.ageMonths,
             "pause_reason" to paused.pauseReason?.name,
             "note" to noteRedaction.text,
             "device" to buildDevice(context),

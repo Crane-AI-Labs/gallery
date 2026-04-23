@@ -25,7 +25,7 @@ private const val TAG = "HealthDatabase"
 
 @Database(
     entities = [SavedAssessmentEntity::class, PausedConsultationEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(HealthTypeConverters::class)
@@ -74,9 +74,24 @@ abstract class HealthDatabase : RoomDatabase() {
             }
         }
 
+        /** Migration 3→4: persist raw age as entered (ageYears + ageMonths), so
+         *  the saved-record view can show the exact age alongside the bucketed
+         *  AgeRange. Defaults to "" for existing rows — the AgeRange band they
+         *  were saved with remains the source of truth. */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN ageYears TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN ageMonths TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE paused_consultations ADD COLUMN ageYears TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE paused_consultations ADD COLUMN ageMonths TEXT NOT NULL DEFAULT ''")
+                Log.d(TAG, "Migration 3→4 complete: added ageYears + ageMonths")
+            }
+        }
+
         private val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
+            MIGRATION_3_4,
         )
 
         fun getInstance(context: Context): HealthDatabase {

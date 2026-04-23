@@ -20,6 +20,10 @@ data class SavedAssessmentEntity(
     val symptoms: String,
     val durationValue: String,
     val durationUnit: DurationUnit,
+    // Raw age as entered by the clinician — kept alongside the bucketed AgeRange
+    // so the saved-record view can show the exact age, not just the band.
+    val ageYears: String = "",
+    val ageMonths: String = "",
     val age: AgeRange?,
     val sex: Sex?,
     val vitalSigns: VitalSigns,
@@ -41,6 +45,7 @@ data class SavedAssessmentEntity(
 fun SavedAssessment.toEntity() = SavedAssessmentEntity(
     id = id, timestamp = timestamp, role = role, customRole = customRole,
     symptoms = symptoms, durationValue = durationValue, durationUnit = durationUnit,
+    ageYears = ageYears, ageMonths = ageMonths,
     age = age, sex = sex, vitalSigns = vitalSigns, confirmedSigns = confirmedSigns,
     guidance = guidance, clinicianConfirmation = clinicianConfirmation, referralInfo = referralInfo,
     latitude = latitude, longitude = longitude,
@@ -50,6 +55,7 @@ fun SavedAssessment.toEntity() = SavedAssessmentEntity(
 fun SavedAssessmentEntity.toDomain() = SavedAssessment(
     id = id, timestamp = timestamp, role = role, customRole = customRole,
     symptoms = symptoms, durationValue = durationValue, durationUnit = durationUnit,
+    ageYears = ageYears, ageMonths = ageMonths,
     age = age, sex = sex, vitalSigns = vitalSigns, confirmedSigns = confirmedSigns,
     guidance = guidance, clinicianConfirmation = clinicianConfirmation, referralInfo = referralInfo,
     latitude = latitude, longitude = longitude,
@@ -94,6 +100,8 @@ data class PausedConsultationEntity(
     val symptoms: String,
     val durationValue: String,
     val durationUnit: DurationUnit,
+    val ageYears: String = "",
+    val ageMonths: String = "",
     val age: AgeRange?,
     val sex: Sex?,
     val vitalSigns: VitalSigns,
@@ -107,6 +115,7 @@ data class PausedConsultationEntity(
 fun PausedConsultation.toEntity() = PausedConsultationEntity(
     id = id, timestamp = timestamp, role = role, customRole = customRole,
     symptoms = symptoms, durationValue = durationValue, durationUnit = durationUnit,
+    ageYears = ageYears, ageMonths = ageMonths,
     age = age, sex = sex, vitalSigns = vitalSigns, checkedSigns = checkedSigns,
     confirmedSigns = confirmedSigns, pauseReason = pauseReason, note = note
 )
@@ -114,6 +123,7 @@ fun PausedConsultation.toEntity() = PausedConsultationEntity(
 fun PausedConsultationEntity.toDomain() = PausedConsultation(
     id = id, timestamp = timestamp, role = role, customRole = customRole,
     symptoms = symptoms, durationValue = durationValue, durationUnit = durationUnit,
+    ageYears = ageYears, ageMonths = ageMonths,
     age = age, sex = sex, vitalSigns = vitalSigns, checkedSigns = checkedSigns,
     confirmedSigns = confirmedSigns, pauseReason = pauseReason, note = note
 )
