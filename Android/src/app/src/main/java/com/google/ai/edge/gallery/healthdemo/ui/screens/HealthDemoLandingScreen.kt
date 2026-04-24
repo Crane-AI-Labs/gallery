@@ -345,9 +345,15 @@ fun HealthDemoLandingScreen(
                 rememberRole = rememberRole,
                 onRememberRoleChange = { rememberRole = it },
                 onContinue = {
-                    val role = viewModel.uiState.value.role
+                    val uiState = viewModel.uiState.value
+                    val role = uiState.role
                     if (role != null) {
-                        if (rememberRole) AppSettings.saveRole(context, role.label)
+                        // For Other, persist the typed custom label so the
+                        // next cold start restores "Community health volunteer"
+                        // rather than the literal "Other" enum label.
+                        val labelToSave = if (role == PatientRole.Other && uiState.customRole.isNotBlank())
+                            uiState.customRole else role.label
+                        if (rememberRole) AppSettings.saveRole(context, labelToSave)
                         else AppSettings.saveRole(context, null)
                     }
                     scope.launch { roleSheetState.hide() }.invokeOnCompletion {
