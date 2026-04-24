@@ -112,7 +112,11 @@ data class VitalSigns(
     val temperature: String = "",
     val heartRate: String = "",
     val respiratoryRate: String = "",
-    val bloodLoss: String = "",
+    // Renamed from bloodLoss → bloodPressure (Makerere #2, 2026-04-24).
+    // Stored as a free-text field so BP can be entered as "120/80" or just
+    // systolic. Legacy rows with a `bloodLoss` JSON key are migrated into
+    // this field at deserialisation time — see HealthTypeConverters.toVitalSigns.
+    val bloodPressure: String = "",
     val spO2: String = ""
 )
 

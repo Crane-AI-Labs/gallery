@@ -270,7 +270,17 @@ class HealthTypeConverters {
 
     @TypeConverter fun fromVitalSigns(v: VitalSigns): String = gson.toJson(v)
     @TypeConverter fun toVitalSigns(v: String): VitalSigns = try {
-        gson.fromJson(v, VitalSigns::class.java) ?: VitalSigns()
+        val parsed = gson.fromJson(v, VitalSigns::class.java) ?: VitalSigns()
+        // Makerere #2 (2026-04-24): the `bloodLoss` field was renamed to
+        // `bloodPressure`. Existing rows still carry a `bloodLoss` JSON key
+        // — promote it into bloodPressure so the reading isn't silently
+        // dropped. New rows are written as `bloodPressure`.
+        if (parsed.bloodPressure.isBlank()) {
+            val legacy = try {
+                org.json.JSONObject(v).optString("bloodLoss", "")
+            } catch (e: Exception) { "" }
+            if (legacy.isNotBlank()) parsed.copy(bloodPressure = legacy) else parsed
+        } else parsed
     } catch (e: Exception) { VitalSigns() }
 
     @TypeConverter fun fromGuidance(v: HealthGuidance): String = gson.toJson(v)

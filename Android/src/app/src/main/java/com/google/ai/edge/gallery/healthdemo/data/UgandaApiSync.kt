@@ -80,14 +80,21 @@ object UgandaApiSync {
             "age_months" to assessment.ageMonths,
             "sex" to assessment.sex?.label,
             "vital_signs" to mapOf(
-                // VitalSigns was restructured for the updated wireframes:
-                // pulseRate → heartRate (semantic rename), bloodPressure dropped,
-                // bloodLoss + spO2 added. Server's `pulse_rate` column now
-                // carries the heart-rate reading.
+                // VitalSigns evolved across releases:
+                //   - pulseRate → heartRate (semantic rename); server still
+                //     uses `pulse_rate` for the heart-rate reading.
+                //   - Makerere #2 (2026-04-24): `bloodLoss` renamed to
+                //     `bloodPressure`. We send it under the new server key
+                //     `blood_pressure`. The old `blood_loss` key is still
+                //     mirrored with the same value for one release so the
+                //     server ETL can backfill without breaking historical
+                //     aggregates that referenced `blood_loss`. TODO(server):
+                //     after the ETL is updated, stop sending `blood_loss`.
                 "temperature" to assessment.vitalSigns.temperature,
                 "pulse_rate" to assessment.vitalSigns.heartRate,
                 "respiratory_rate" to assessment.vitalSigns.respiratoryRate,
-                "blood_loss" to assessment.vitalSigns.bloodLoss,
+                "blood_pressure" to assessment.vitalSigns.bloodPressure,
+                "blood_loss" to assessment.vitalSigns.bloodPressure,
                 "spo2" to assessment.vitalSigns.spO2,
             ),
             "confirmed_signs" to assessment.confirmedSigns.toList(),

@@ -518,7 +518,7 @@ class HealthDemoViewModel @Inject constructor(
             if (vitalSigns.heartRate.isNotBlank()) append("HR: ${vitalSigns.heartRate} bpm, ")
             if (vitalSigns.respiratoryRate.isNotBlank()) append("RR: ${vitalSigns.respiratoryRate}/min, ")
             if (vitalSigns.spO2.isNotBlank()) append("SpO2: ${vitalSigns.spO2}%, ")
-            if (vitalSigns.bloodLoss.isNotBlank()) append("Blood loss: ${vitalSigns.bloodLoss}")
+            if (vitalSigns.bloodPressure.isNotBlank()) append("BP: ${vitalSigns.bloodPressure} mmHg")
         }.trimEnd(',', ' ').ifEmpty { "Not recorded" }
     }
 

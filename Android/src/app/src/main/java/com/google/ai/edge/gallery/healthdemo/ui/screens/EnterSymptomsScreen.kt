@@ -554,20 +554,13 @@ fun EnterSymptomsScreen(
                     viewModel.setVitalSigns(uiState.vitalSigns.copy(heartRate = it))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = uiState.vitalSigns.bloodLoss,
-                    onValueChange = { viewModel.setVitalSigns(uiState.vitalSigns.copy(bloodLoss = it)) },
-                    placeholder = { Text("Blood Loss: You may use words or a number", color = Color(0xFF9E9E9E)) },
-                    modifier = Modifier.fillMaxWidth().height(80.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    label = { Text("Blood Loss", fontSize = 12.sp) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = NavyBlue,
-                        unfocusedBorderColor = Color(0xFFE0E0E0),
-                        focusedTextColor = Color.Black,
-                        unfocusedTextColor = Color.Black
-                    )
-                )
+                VitalField(
+                    label = "Blood Pressure (mmHg)",
+                    placeholder = "e.g 120/80",
+                    value = uiState.vitalSigns.bloodPressure,
+                ) {
+                    viewModel.setVitalSigns(uiState.vitalSigns.copy(bloodPressure = it))
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 VitalField("SpO2 (%)", "e.g 98", uiState.vitalSigns.spO2) {
                     viewModel.setVitalSigns(uiState.vitalSigns.copy(spO2 = it))
