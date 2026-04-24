@@ -42,8 +42,8 @@ android {
     applicationId = "com.craneailabs.easehealth"
     minSdk = 31
     targetSdk = 35
-    versionCode = 102
-    versionName = "1.0.2"
+    versionCode = 103
+    versionName = "1.0.3"
 
     // Needed for HuggingFace auth workflows.
     // Use the scheme of the "Redirect URLs" in HuggingFace app.

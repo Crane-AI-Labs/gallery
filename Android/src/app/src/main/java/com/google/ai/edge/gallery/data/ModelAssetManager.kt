@@ -19,10 +19,10 @@ object ModelAssetManager {
     private const val TAG = "ModelAssetManager"
     private const val MODELS_DIR = "models"
     private const val VERSION_KEY = "model_asset_version"
-    private const val CURRENT_VERSION = 3  // bump when models change
+    private const val CURRENT_VERSION = 4  // bump when models change — v4 swaps LLM to CraneAILabs v2.1-instruct
 
     // Final model filenames (after reassembly)
-    const val LLM_MODEL = "medgemma-v5b-Q4_0.gguf"
+    const val LLM_MODEL = "medgemma-v2.1-instruct-Q4_K_M.gguf"
     const val VISION_MODEL = "medgemma-mmproj-Q8_0.gguf"
     const val ASR_MODEL = "medasr-fp32.onnx"
     const val ASR_TOKENIZER = "medasr-tokenizer.json"
@@ -77,6 +77,20 @@ object ModelAssetManager {
     ) {
         val dir = modelsDir(context)
         dir.mkdirs()
+
+        // Sweep stale model files left by older versions (e.g. the 2.3 GB
+        // medgemma-v5b-Q4_0.gguf from v1.0.2). Anything in models/ that isn't
+        // in the current expected set is removed before we start extracting,
+        // so the device doesn't end up carrying two full LLM copies.
+        val expected = setOf(LLM_MODEL, VISION_MODEL, ASR_MODEL, ASR_TOKENIZER)
+        dir.listFiles()?.forEach { f ->
+            if (f.isFile && f.name !in expected) {
+                val size = f.length()
+                if (f.delete()) {
+                    Log.d(TAG, "Removed stale ${f.name} (${size / 1024 / 1024} MB)")
+                }
+            }
+        }
 
         val entries = discoverAssets(context)
 
