@@ -98,6 +98,12 @@ object UgandaApiSync {
                 "spo2" to assessment.vitalSigns.spO2,
             ),
             "confirmed_signs" to assessment.confirmedSigns.toList(),
+            // Makerere v2 #4 (2026-04-24): traditional medicine enum +
+            // free-text detail. Redact first so any phone numbers / names
+            // inadvertently entered in the description don't leave the
+            // device as-is.
+            "traditional_medicine" to assessment.traditionalMedicine?.name,
+            "traditional_medicine_details" to PiiRedactor.redact(assessment.traditionalMedicineDetails).text,
             "guidance" to mapOf(
                 "triage_level" to assessment.guidance.triageLevel,
                 "condition" to assessment.guidance.possibleCondition,

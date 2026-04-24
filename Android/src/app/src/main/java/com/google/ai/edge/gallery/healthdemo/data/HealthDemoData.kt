@@ -11,8 +11,15 @@ enum class PatientRole(val label: String) {
 }
 
 enum class DurationUnit(val label: String) {
-    Hours("Hours"),
-    Days("Days")
+    // Makerere v3 #8 (2026-04-24): testers reported long-standing conditions
+    // (e.g. "cough for 3 months") needed finer granularity than Days/Hours.
+    // Order here is what the dropdown renders via .entries — surfaced
+    // longest-first so chronic cases are easy to find.
+    Years("Years"),
+    Months("Months"),
+    Weeks("Weeks"),
+    Days("Days"),
+    Hours("Hours")
 }
 
 // ─── Signs & Symptoms ─────────────────────────────────────────────────────────
@@ -121,9 +128,12 @@ data class VitalSigns(
 )
 
 enum class TraditionalMedicine(val label: String) {
+    // Makerere v2 #4 (2026-04-24): dropped "Unknown" per clinical review —
+    // testers said the option encouraged skipping the question. Yes/No
+    // with a description field below forces a choice and captures the detail
+    // that matters for drug-interaction risk.
     Yes("Yes"),
-    No("No"),
-    Unknown("Unknown")
+    No("No")
 }
 
 /**
@@ -259,6 +269,9 @@ data class SavedAssessment(
     val vitalSigns: VitalSigns = VitalSigns(),
     val confirmedSigns: Set<String> = emptySet(),
     val traditionalMedicine: TraditionalMedicine? = null,
+    // Makerere v2 #4: free-text detail captured when traditionalMedicine=Yes.
+    // Empty string for No and for legacy rows pre-migration 5→6.
+    val traditionalMedicineDetails: String = "",
     val treatmentAdministered: String = "",
     val guidance: HealthGuidance,
     val clinicianConfirmation: ClinicianConfirmation? = null,

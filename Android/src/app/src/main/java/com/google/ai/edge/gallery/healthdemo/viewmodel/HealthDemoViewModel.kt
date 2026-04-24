@@ -81,6 +81,8 @@ data class HealthDemoUiState(
 
     // Traditional medicine
     val traditionalMedicine: TraditionalMedicine? = null,
+    // Makerere v2 #4: free-text detail shown when traditionalMedicine == Yes.
+    val traditionalMedicineDetails: String = "",
 
     // Guidance result
     val guidance: HealthGuidance? = null,
@@ -125,12 +127,23 @@ class HealthDemoViewModel @Inject constructor(
     private var recordingJob: kotlinx.coroutines.Job? = null
 
     fun setRole(role: PatientRole) {
-        _uiState.update { it.copy(role = role, customRole = "") }
-        // Makerere #3: persist role across the full flow so save-assessment
-        // → reset-assessment → new consultation doesn't revert to Other. The
-        // landing screen toggle still controls whether the role survives a
-        // full app restart; this call just keeps it alive within a session.
-        AppSettings.saveRole(appContext, role.label)
+        val prevCustomRole = _uiState.value.customRole
+        val prevRole = _uiState.value.role
+        // Makerere v2 #1: if we're being asked to set role=Other *and* a
+        // custom label is already in-flight (nav-graph cold-start restore or
+        // a user still holding Other from a prior session), don't clobber
+        // customRole back to "". That used to wipe "Community health
+        // volunteer" the moment nav-graph restore ran setRole(Other) before
+        // setCustomRole(label), producing a blank pill on the symptoms screen.
+        val keepCustom = role == PatientRole.Other && (prevRole == PatientRole.Other || prevCustomRole.isNotBlank())
+        _uiState.update { it.copy(role = role, customRole = if (keepCustom) prevCustomRole else "") }
+        // Persist Other only when there's no custom label to carry — otherwise
+        // the literal "Other" would momentarily win in AppSettings between
+        // this call and setCustomRole(), and a process death in that window
+        // would lose the custom label on next boot.
+        if (!(role == PatientRole.Other && keepCustom)) {
+            AppSettings.saveRole(appContext, role.label)
+        }
         HealthDemoAnalytics.logRoleSelected(role.name)
     }
 
@@ -176,7 +189,19 @@ class HealthDemoViewModel @Inject constructor(
     }
 
     fun setTraditionalMedicine(tm: TraditionalMedicine) {
-        _uiState.update { it.copy(traditionalMedicine = tm) }
+        // If switching away from Yes, clear the details string so stale input
+        // doesn't get persisted on a subsequent No.
+        val clearDetails = tm != TraditionalMedicine.Yes
+        _uiState.update {
+            it.copy(
+                traditionalMedicine = tm,
+                traditionalMedicineDetails = if (clearDetails) "" else it.traditionalMedicineDetails
+            )
+        }
+    }
+
+    fun setTraditionalMedicineDetails(text: String) {
+        _uiState.update { it.copy(traditionalMedicineDetails = text) }
     }
 
     fun setDangerSignsReviewed(reviewed: Boolean) {
@@ -569,8 +594,16 @@ class HealthDemoViewModel @Inject constructor(
 
     fun buildSavedAssessment(): SavedAssessment {
         val state = _uiState.value
+        // Makerere v2 #3: do NOT fall back to now() here. If the symptoms
+        // screen's LaunchedEffect(Unit) didn't fire (e.g. VM recreated
+        // mid-flow, deeplink entry), using now() makes the Completed time
+        // ~= Started time — and the "< 1 min active" chip shows on every
+        // row. Instead, mirror `timestamp` so they're exactly equal, letting
+        // the detail sheet's `durationMs <= 0` branch hide the chip.
+        val nowMs = System.currentTimeMillis()
         return SavedAssessment(
-            sessionStartTime = if (state.sessionStartTime != 0L) state.sessionStartTime else System.currentTimeMillis(),
+            timestamp = nowMs,
+            sessionStartTime = if (state.sessionStartTime != 0L) state.sessionStartTime else nowMs,
             role = state.role ?: PatientRole.Other,
             customRole = state.customRole,
             symptoms = state.symptoms,
@@ -583,6 +616,7 @@ class HealthDemoViewModel @Inject constructor(
             vitalSigns = state.vitalSigns,
             confirmedSigns = state.confirmedSigns,
             traditionalMedicine = state.traditionalMedicine,
+            traditionalMedicineDetails = state.traditionalMedicineDetails,
             treatmentAdministered = state.treatmentAdministered,
             guidance = state.guidance!!,
             latitude = state.capturedLocation?.latitude,

@@ -25,7 +25,7 @@ private const val TAG = "HealthDatabase"
 
 @Database(
     entities = [SavedAssessmentEntity::class, PausedConsultationEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(HealthTypeConverters::class)
@@ -99,11 +99,26 @@ abstract class HealthDatabase : RoomDatabase() {
             }
         }
 
+        /** Migration 5→6 (Makerere v2 #4, 2026-04-24): promote
+         *  traditionalMedicine + traditionalMedicineDetails into dedicated
+         *  columns. traditionalMedicine was previously nowhere (field dropped
+         *  before we landed persistence); details is new. Existing rows get
+         *  NULL / empty-string so the detail sheet renders nothing for them
+         *  and we don't fabricate a "No" that the clinician never entered. */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN traditionalMedicine TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN traditionalMedicineDetails TEXT NOT NULL DEFAULT ''")
+                Log.d(TAG, "Migration 5→6 complete: added traditionalMedicine + details")
+            }
+        }
+
         private val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
+            MIGRATION_5_6,
         )
 
         fun getInstance(context: Context): HealthDatabase {
@@ -279,6 +294,14 @@ class HealthTypeConverters {
 
     @TypeConverter fun fromPauseReason(v: PauseReason?): String? = v?.name
     @TypeConverter fun toPauseReason(v: String?): PauseReason? = v?.let { runCatching { PauseReason.valueOf(it) }.getOrNull() }
+
+    @TypeConverter fun fromTraditionalMedicine(v: TraditionalMedicine?): String? = v?.name
+    @TypeConverter fun toTraditionalMedicine(v: String?): TraditionalMedicine? = v?.let {
+        // The legacy "Unknown" variant was dropped in Makerere v2 #4. Any
+        // row still carrying it (there shouldn't be, but be defensive) is
+        // coerced to null so the detail sheet hides the section entirely.
+        runCatching { TraditionalMedicine.valueOf(it) }.getOrNull()
+    }
 
     @TypeConverter fun fromVitalSigns(v: VitalSigns): String = gson.toJson(v)
     @TypeConverter fun toVitalSigns(v: String): VitalSigns = try {

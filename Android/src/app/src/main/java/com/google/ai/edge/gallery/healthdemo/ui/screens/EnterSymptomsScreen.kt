@@ -717,6 +717,28 @@ fun EnterSymptomsScreen(
                     }
                 }
 
+                // Makerere v2 #4: free-text detail capture when the patient
+                // is using traditional medicine — drug-interaction risk
+                // depends on what specifically is being used. Hidden for
+                // No / unanswered to avoid dead space.
+                if (uiState.traditionalMedicine == TraditionalMedicine.Yes) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = uiState.traditionalMedicineDetails,
+                        onValueChange = { viewModel.setTraditionalMedicineDetails(it) },
+                        placeholder = { Text("Please describe (e.g. herbal tea for fever)", color = Color(0xFF9E9E9E)) },
+                        label = { Text("Please describe", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth().height(96.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NavyBlue,
+                            unfocusedBorderColor = Color(0xFFE0E0E0),
+                            focusedTextColor = Color.Black,
+                            unfocusedTextColor = Color.Black
+                        )
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }

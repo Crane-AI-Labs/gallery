@@ -35,6 +35,12 @@ data class SavedAssessmentEntity(
     val sex: Sex?,
     val vitalSigns: VitalSigns,
     val confirmedSigns: Set<String>,
+    // Makerere v2 #4 (2026-04-24): traditional medicine details + flag.
+    // traditionalMedicine column added implicitly via Gson serialization of
+    // SavedAssessment; explicit text column for traditionalMedicineDetails
+    // so free-text searches can run server-side without unpacking Gson.
+    val traditionalMedicine: TraditionalMedicine? = null,
+    val traditionalMedicineDetails: String = "",
     val guidance: HealthGuidance,
     val clinicianConfirmation: ClinicianConfirmation?,
     val referralInfo: ReferralInfo?,
@@ -56,6 +62,8 @@ fun SavedAssessment.toEntity() = SavedAssessmentEntity(
     symptoms = symptoms, durationValue = durationValue, durationUnit = durationUnit,
     ageYears = ageYears, ageMonths = ageMonths,
     age = age, sex = sex, vitalSigns = vitalSigns, confirmedSigns = confirmedSigns,
+    traditionalMedicine = traditionalMedicine,
+    traditionalMedicineDetails = traditionalMedicineDetails,
     guidance = guidance, clinicianConfirmation = clinicianConfirmation, referralInfo = referralInfo,
     latitude = latitude, longitude = longitude,
     locationAccuracyMeters = locationAccuracyMeters, district = district
@@ -71,6 +79,8 @@ fun SavedAssessmentEntity.toDomain() = SavedAssessment(
     symptoms = symptoms, durationValue = durationValue, durationUnit = durationUnit,
     ageYears = ageYears, ageMonths = ageMonths,
     age = age, sex = sex, vitalSigns = vitalSigns, confirmedSigns = confirmedSigns,
+    traditionalMedicine = traditionalMedicine,
+    traditionalMedicineDetails = traditionalMedicineDetails,
     guidance = guidance, clinicianConfirmation = clinicianConfirmation, referralInfo = referralInfo,
     latitude = latitude, longitude = longitude,
     locationAccuracyMeters = locationAccuracyMeters, district = district
