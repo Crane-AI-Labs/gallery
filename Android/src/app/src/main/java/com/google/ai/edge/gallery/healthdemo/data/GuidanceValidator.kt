@@ -26,6 +26,14 @@ object GuidanceValidator {
      * Parse and validate a raw LLM response into HealthGuidance.
      * Supports both XML format (primary) and JSON format (legacy fallback).
      * Always returns a result — never throws.
+     *
+     * `wasValid` reflects whether the model output was structurally parseable
+     * into the expected XML/JSON schema. Post-hoc safety overrides (danger
+     * sign → Emergency referral, low-confidence auto-escalation, dosage
+     * stripping) are NOT considered parse failures — Makerere #4 hang was
+     * caused by the ViewModel retrying every parse with warnings, which
+     * always fires for danger-sign cases. Callers that care about overrides
+     * can still inspect `validationWarnings`.
      */
     fun parseAndValidate(
         rawResponse: String,
@@ -36,14 +44,15 @@ object GuidanceValidator {
         // Try XML first (primary format)
         val xmlResult = parseXml(rawResponse)
         if (xmlResult != null) {
-            return buildResult(xmlResult, rawResponse, warnings, confirmedSigns)
+            return buildResult(xmlResult, rawResponse, warnings, confirmedSigns, parsedCleanly = true)
         }
 
         // Fall back to JSON (legacy support)
         val jsonResult = parseJson(rawResponse)
         if (jsonResult != null) {
             warnings.add("Response was JSON (legacy format), not XML")
-            return buildResult(jsonResult, rawResponse, warnings, confirmedSigns)
+            // JSON is a degraded but usable format — still a successful parse.
+            return buildResult(jsonResult, rawResponse, warnings, confirmedSigns, parsedCleanly = true)
         }
 
         Log.w(TAG, "No XML or JSON found in response")
@@ -136,7 +145,8 @@ object GuidanceValidator {
         fields: RawFields,
         rawResponse: String,
         warnings: MutableList<String>,
-        confirmedSigns: Set<String> = emptySet()
+        confirmedSigns: Set<String> = emptySet(),
+        parsedCleanly: Boolean = false,
     ): ParseResult {
         // Validate triage
         val triage = validateTriageCategory(fields.triage)
@@ -196,7 +206,12 @@ object GuidanceValidator {
             redFlags = fields.redFlags,
         )
 
-        return ParseResult(guidance, warnings.isEmpty(), warnings)
+        // wasValid is true whenever the model output parsed cleanly, even if
+        // we then rewrote the triage level (safety override) or stripped a
+        // dosage string. Those are post-hoc safeguards, not parse failures —
+        // flagging them as invalid used to trigger infinite retry loops on
+        // any case with confirmed danger signs (Makerere #4).
+        return ParseResult(guidance, parsedCleanly, warnings)
     }
 
     // ─── L2 Dosage Safety (post-processing) ──────────────────────────────────────

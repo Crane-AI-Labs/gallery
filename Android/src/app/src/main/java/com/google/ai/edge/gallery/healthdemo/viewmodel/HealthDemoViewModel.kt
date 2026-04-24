@@ -24,6 +24,7 @@ import com.google.ai.edge.gallery.llm.LlamaCpp
 import com.google.ai.edge.gallery.llm.TokenCallback
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import android.content.Context
 import com.google.ai.edge.gallery.analytics.HealthDemoAnalytics
@@ -44,6 +45,14 @@ import javax.inject.Inject
 private const val TAG = "HealthDemoViewModel"
 private const val N_CTX = 2048
 private const val N_GPU_LAYERS = 99  // offload as many layers as possible to GPU
+
+// Hard watchdog for the full inference pipeline (load + first attempt +
+// optional retry). If generation runs past this point the native call is
+// aborted via LlamaCpp.stopCompletion so the UI doesn't sit on the Generating
+// screen indefinitely — field testers at Makerere reported having to kill
+// the app after a minute of spinner on danger-sign cases. 60s is comfortably
+// above the p95 on Pixel 8 (~18s) and a warm Tecno Spark (~35s).
+private const val INFERENCE_TIMEOUT_MS = 60_000L
 
 data class HealthDemoUiState(
     // Role selection
@@ -335,13 +344,31 @@ class HealthDemoViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO.limitedParallelism(1)) {
             val startMs = System.currentTimeMillis()
             try {
-                val result = runMedGemmaInferenceWithRetry(state)
+                // Makerere #4: cap total inference at INFERENCE_TIMEOUT_MS.
+                // If we time out, nudge the native side to unblock and
+                // surface a clear error instead of a silent indefinite spin.
+                val result = withTimeoutOrNull(INFERENCE_TIMEOUT_MS) {
+                    runMedGemmaInferenceWithRetry(state)
+                }
                 val durationMs = System.currentTimeMillis() - startMs
                 if (result != null) {
                     HealthDemoAnalytics.logInferenceCompleted(
                         appContext, durationMs, hasImage = state.capturedImageBytes != null
                     )
                     _uiState.update { it.copy(guidance = result, savedAssessment = null, isProcessing = false) }
+                } else if (durationMs >= INFERENCE_TIMEOUT_MS) {
+                    // Watchdog fired — abort the native call so the next
+                    // attempt isn't starved waiting on the same thread.
+                    if (modelHandle != 0L) {
+                        try { LlamaCpp.stopCompletion(modelHandle) } catch (_: Exception) { /* best effort */ }
+                    }
+                    HealthDemoAnalytics.logInferenceFailed("watchdog_timeout")
+                    _uiState.update {
+                        it.copy(
+                            isProcessing = false,
+                            inferenceError = "Assessment took too long and was stopped. Please try again."
+                        )
+                    }
                 } else {
                     HealthDemoAnalytics.logInferenceFailed("parse_failed_after_retry")
                     _uiState.update {
