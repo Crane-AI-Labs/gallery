@@ -52,13 +52,23 @@ fun HealthDemoNavGraph(
     val context = LocalContext.current
     val repository = remember { HealthDemoRepository(context.applicationContext) }
 
-    // Restore saved role on launch
-    val savedRole = remember {
-        val roleName = AppSettings.getRole(context)
-        if (roleName != null) PatientRole.entries.find { it.label == roleName } else null
+    // Restore saved role on launch. Makerere #3: also restore custom "Other"
+    // labels (e.g. "Community health volunteer") so they persist across
+    // app restarts and full-flow cycles, not just the built-in enum entries.
+    val savedRoleLabel = remember { AppSettings.getRole(context) }
+    val savedRole = remember(savedRoleLabel) {
+        savedRoleLabel?.let { label ->
+            PatientRole.entries.find { it.label == label }
+        }
     }
-    if (savedRole != null && viewModel.uiState.value.role == null) {
-        viewModel.setRole(savedRole)
+    if (viewModel.uiState.value.role == null && !savedRoleLabel.isNullOrBlank()) {
+        if (savedRole != null) {
+            viewModel.setRole(savedRole)
+        } else {
+            // Custom role label was persisted — restore as Other + customRole
+            viewModel.setRole(PatientRole.Other)
+            viewModel.setCustomRole(savedRoleLabel)
+        }
     }
 
     val startDestination = if (AppSettings.hasAcceptedConsent(context)) {
@@ -125,7 +135,12 @@ fun HealthDemoNavGraph(
                     navController.navigate(HealthDemoDestinations.GUIDANCE) {
                         popUpTo(HealthDemoDestinations.GENERATING_ASSESSMENT) { inclusive = true }
                     }
-                }
+                },
+                onError = {
+                    // Parser / inference failure — go back to the symptoms
+                    // screen where the red error banner shows inferenceError.
+                    navController.popBackStack()
+                },
             )
         }
 

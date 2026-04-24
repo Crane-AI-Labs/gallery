@@ -9,12 +9,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CheckCircle
@@ -59,11 +62,18 @@ fun SelectRoleSheet(
     val canContinue = uiState.role != null &&
             (uiState.role != PatientRole.Other || uiState.customRole.isNotBlank())
 
+    // Keyboard avoidance (Makerere #3): the sheet sits inside a ModalBottomSheet,
+    // so even with windowSoftInputMode=adjustResize the IME can draw over the
+    // "Other" text field. imePadding() lifts the sheet above the keyboard, and
+    // the inner verticalScroll keeps the Continue button reachable on short
+    // devices when the keyboard is up.
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White)
             .navigationBarsPadding()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
     ) {
         DisclaimerBanner()
 

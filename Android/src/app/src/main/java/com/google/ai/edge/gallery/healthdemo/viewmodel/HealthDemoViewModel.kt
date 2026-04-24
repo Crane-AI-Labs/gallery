@@ -117,11 +117,20 @@ class HealthDemoViewModel @Inject constructor(
 
     fun setRole(role: PatientRole) {
         _uiState.update { it.copy(role = role, customRole = "") }
+        // Makerere #3: persist role across the full flow so save-assessment
+        // → reset-assessment → new consultation doesn't revert to Other. The
+        // landing screen toggle still controls whether the role survives a
+        // full app restart; this call just keeps it alive within a session.
+        AppSettings.saveRole(appContext, role.label)
         HealthDemoAnalytics.logRoleSelected(role.name)
     }
 
     fun setCustomRole(text: String) {
         _uiState.update { it.copy(customRole = text) }
+        // Keep the persisted role label in sync when the user types a custom
+        // role, so "Other → Community health volunteer" doesn't get lost
+        // when resetAssessment() re-reads AppSettings.
+        if (text.isNotBlank()) AppSettings.saveRole(appContext, text)
     }
 
     /** Call when entering the symptoms screen — starts GPS early so it's ready by inference time */
@@ -630,9 +639,24 @@ class HealthDemoViewModel @Inject constructor(
     }
 
     fun resetAssessment() {
-        // Preserve the role selection across assessments
-        val currentRole = _uiState.value.role
-        val currentCustomRole = _uiState.value.customRole
+        // Preserve the role selection across assessments. Makerere #3:
+        // prefer AppSettings (persisted) over the in-memory value, so a
+        // process-death or navigation backstack pop that drops the VM state
+        // still lands on the same role the clinician picked for this shift.
+        val persistedLabel = AppSettings.getRole(appContext)
+        val persistedRole = persistedLabel?.let { label ->
+            PatientRole.entries.firstOrNull { it.label == label }
+        }
+        val persistedCustom = if (persistedRole == null && !persistedLabel.isNullOrBlank()) {
+            persistedLabel
+        } else ""
+
+        val currentRole = _uiState.value.role ?: persistedRole
+            ?: if (persistedCustom.isNotBlank()) PatientRole.Other else null
+        val currentCustomRole = if (currentRole == PatientRole.Other) {
+            _uiState.value.customRole.ifBlank { persistedCustom }
+        } else ""
+
         _uiState.value = HealthDemoUiState(role = currentRole, customRole = currentCustomRole)
     }
 
