@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -66,6 +67,10 @@ fun ReferralSheet(
             .fillMaxWidth()
             .background(Color.White)
             .navigationBarsPadding()
+            // Makerere v2 #5: referral sheet has the notes text field; keep
+            // the sheet chrome above the keyboard so "Save Referral" stays
+            // tappable on short screens.
+            .imePadding()
             .verticalScroll(rememberScrollState())
     ) {
         // Header

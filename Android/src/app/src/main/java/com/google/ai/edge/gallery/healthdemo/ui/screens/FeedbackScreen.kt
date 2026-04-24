@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -62,6 +63,10 @@ fun FeedbackScreen(
             .background(Color.White)
             .statusBarsPadding()
             .navigationBarsPadding()
+            // Makerere v2 #5: feedback has the "Additional comments" text
+            // field; imePadding keeps Submit/Skip reachable when the
+            // keyboard is open.
+            .imePadding()
     ) {
         Column(
             modifier = Modifier

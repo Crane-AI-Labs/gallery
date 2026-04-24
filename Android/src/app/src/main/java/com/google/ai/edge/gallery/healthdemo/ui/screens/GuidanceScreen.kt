@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -160,6 +161,11 @@ fun GuidanceScreen(
             .background(Color.White)
             .statusBarsPadding()
             .navigationBarsPadding()
+            // Makerere v2 #5: guidance screen has inline text fields
+            // (clinician confirmation checkbox + treatment administered)
+            // and hosts pause/referral sheets with text input. imePadding
+            // here keeps the Save/Generate buttons above the keyboard.
+            .imePadding()
     ) {
         DisclaimerBanner()
 

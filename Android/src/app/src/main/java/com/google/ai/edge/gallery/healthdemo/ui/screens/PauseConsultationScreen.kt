@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -62,6 +63,10 @@ fun PauseConsultationSheet(
             .fillMaxWidth()
             .background(Color.White)
             .navigationBarsPadding()
+            // Makerere v2 #5: pause sheet's note field lifts the keyboard;
+            // imePadding keeps "Save & Start New" reachable without the
+            // clinician having to dismiss the keyboard first.
+            .imePadding()
             .verticalScroll(rememberScrollState())
     ) {
         // Header
