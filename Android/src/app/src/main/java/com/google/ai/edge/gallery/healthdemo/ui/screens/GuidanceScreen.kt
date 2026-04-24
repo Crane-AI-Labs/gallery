@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Warning
@@ -511,6 +510,9 @@ fun GuidanceScreen(
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
+            // Primary action — label kept as "Save Assessment" (the
+            // wireframe-aligned rename from v1.0.2's "Confirm Outcome") and
+            // still gated behind the clinician-acknowledgement checkbox.
             Button(
                 onClick = onConfirmOutcome,
                 enabled = uiState.clinicianAcknowledged,
@@ -526,50 +528,62 @@ fun GuidanceScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedButton(
-                onClick = { showReferralSheet = true },
-                enabled = uiState.clinicianAcknowledged,
-                modifier = Modifier.fillMaxWidth().height(46.dp),
-                shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (uiState.clinicianAcknowledged) Color(0xFFBDBDBD) else Color(0xFFE0E0E0)
-                )
+            // Compact secondary row — Refer / Pause / New side-by-side, as
+            // in v1.0.2. Shorter labels fit in a row on small phones.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    "Refer Patient",
-                    fontSize = 14.sp,
-                    color = if (uiState.clinicianAcknowledged) Color(0xFF1F1F1F) else Color(0xFFBDBDBD),
-                    fontWeight = FontWeight.Medium
-                )
+                OutlinedButton(
+                    onClick = { showReferralSheet = true },
+                    enabled = uiState.clinicianAcknowledged,
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (uiState.clinicianAcknowledged) NavyBlue else Color(0xFFE0E0E0)
+                    )
+                ) {
+                    Text(
+                        "Refer",
+                        fontSize = 13.sp,
+                        color = if (uiState.clinicianAcknowledged) NavyBlue else Color(0xFFBDBDBD),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { showPauseSheet = true },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, OrangeGold)
+                ) {
+                    Text("Pause", fontSize = 13.sp, color = OrangeGold, fontWeight = FontWeight.Medium)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        viewModel.resetAssessment()
+                        onCreateNew()
+                    },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NavyBlue)
+                ) {
+                    Text("New", fontSize = 13.sp, color = NavyBlue, fontWeight = FontWeight.Medium)
+                }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedButton(
-                onClick = { showPauseSheet = true },
-                modifier = Modifier.fillMaxWidth().height(46.dp),
-                shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, OrangeGold)
-            ) {
-                Text("Pause Assessment", fontSize = 14.sp, color = OrangeGold, fontWeight = FontWeight.Medium)
-            }
-
 
             Spacer(modifier = Modifier.height(4.dp))
 
             TextButton(
                 onClick = { showReturnHomeDialog = true },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.align(Alignment.CenterHorizontally)
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = null,
-                    tint = Color(0xFF9E9E9E),
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Back to Home", color = Color(0xFF9E9E9E), fontSize = 14.sp)
+                Text("Return to Home", color = NavyBlue, fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
