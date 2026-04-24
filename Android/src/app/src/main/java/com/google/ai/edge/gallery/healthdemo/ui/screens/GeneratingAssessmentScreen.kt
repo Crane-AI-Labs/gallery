@@ -46,14 +46,20 @@ private val TextBlue = Color(0xFF7B8FFF)
 @Composable
 fun GeneratingAssessmentScreen(
     viewModel: HealthDemoViewModel,
-    onReady: () -> Unit
+    onReady: () -> Unit,
+    onError: () -> Unit = onReady,
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Navigate when guidance is ready
-    LaunchedEffect(uiState.guidance, uiState.isProcessing) {
-        if (uiState.guidance != null && !uiState.isProcessing) {
-            onReady()
+    // Terminal state watcher — exit the screen whenever inference stops,
+    // win or lose. Previously only success navigated forward, which meant a
+    // parser failure (isProcessing=false, guidance=null, inferenceError set)
+    // left the rings spinning forever and the user stranded on the loader.
+    LaunchedEffect(uiState.guidance, uiState.isProcessing, uiState.inferenceError) {
+        if (uiState.isProcessing) return@LaunchedEffect
+        when {
+            uiState.guidance != null -> onReady()
+            uiState.inferenceError != null -> onError()
         }
     }
 
