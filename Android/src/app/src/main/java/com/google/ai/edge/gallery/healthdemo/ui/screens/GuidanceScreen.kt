@@ -468,18 +468,9 @@ fun GuidanceScreen(
                 )
             )
 
-            // Saved banner
-            if (isSaved) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFE8F5E9), modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "Case saved. Will sync when online.",
-                        modifier = Modifier.padding(12.dp),
-                        fontSize = 13.sp,
-                        color = Color(0xFF2E7D32)
-                    )
-                }
-            }
+            // Saved banner moved to bottom actions (online-aware variant).
+            // Keeping only the single Uganda sync status toast there avoids
+            // the duplicate green banner clinicians saw in the field.
 
             // Privacy reassurance (Makerere #6, to match updated wireframes):
             // remind the clinician that inference ran locally before they hit
