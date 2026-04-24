@@ -138,9 +138,20 @@ enum class TraditionalMedicine(val label: String) {
 
 /**
  * Represents the full guidance result, matching the wireframe layout:
- * - Possible Condition
+ * - Possible Condition (primary + optional differentials)
  * - Suggested Treatment (bullet list)
  * - Recommended Next Steps (bullet list)
+ *
+ * 2026-04-24: added `possibleConditions` to carry a ranked differential
+ * list. The legacy `possibleCondition` scalar is kept for backward
+ * compatibility (server ETL, old serialised rows, simple call sites).
+ * Convention when `possibleConditions` is non-empty:
+ *   possibleConditions[0] == possibleCondition   (primary, always)
+ *   possibleConditions[1..2]                     (up to 2 alternates)
+ * Use [differentials] when you want a list regardless of whether the
+ * row was written before or after the migration — it falls back to
+ * [possibleCondition] for legacy rows where `possibleConditions` is
+ * empty but `possibleCondition` is set.
  */
 data class HealthGuidance(
     val possibleCondition: String,
@@ -150,8 +161,22 @@ data class HealthGuidance(
     val triageLevel: String = "",
     val confidence: String = "",
     val redFlags: List<String> = emptyList(),
-    val whyItMatters: String = ""
-)
+    val whyItMatters: String = "",
+    val possibleConditions: List<String> = emptyList(),
+) {
+    /**
+     * The condition(s) to display. For new rows this is `possibleConditions`.
+     * For legacy rows (Gson-deserialised before the field existed) this
+     * falls back to `[possibleCondition]` so UI code can treat every row
+     * uniformly. Empty only if both inputs are blank.
+     */
+    val differentials: List<String>
+        get() = when {
+            possibleConditions.isNotEmpty() -> possibleConditions
+            possibleCondition.isNotBlank() -> listOf(possibleCondition)
+            else -> emptyList()
+        }
+}
 
 // ─── Pause / Resume ──────────────────────────────────────────────────────────
 

@@ -190,10 +190,20 @@ object GuidanceValidator {
         val safeNextSteps = fields.nextSteps
             .map { stripDosageOnly(it, warnings) }
             .filter { it.isNotBlank() && it.length > 3 }
-        val safeCondition = fields.condition
+
+        // <c> is now pipe-delimited (most-likely first, up to 3 entries).
+        // Split, trim, drop blanks. Primary condition stays in
+        // `possibleCondition` for backward compatibility (server ETL and
+        // legacy UI). Full ranked list lives in `possibleConditions`.
+        val conditions = fields.condition
+            .split("|")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        val primaryCondition = conditions.firstOrNull() ?: ""
 
         val guidance = HealthGuidance(
-            possibleCondition = safeCondition.ifBlank { "Assessment required" },
+            possibleCondition = primaryCondition.ifBlank { "Assessment required" },
+            possibleConditions = conditions,
             suggestedTreatment = safeTreatment.filter { it.isNotBlank() }.ifEmpty {
                 listOf("Perform full clinical assessment", "Monitor vital signs")
             },

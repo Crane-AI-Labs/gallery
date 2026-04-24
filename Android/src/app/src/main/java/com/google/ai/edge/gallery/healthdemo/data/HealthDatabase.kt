@@ -319,6 +319,17 @@ class HealthTypeConverters {
     } catch (e: Exception) { VitalSigns() }
 
     @TypeConverter fun fromGuidance(v: HealthGuidance): String = gson.toJson(v)
+    /**
+     * Deserialise HealthGuidance. Forward-compatible with the
+     * 2026-04-24 `possibleConditions: List<String>` addition:
+     * - Old rows lack the key entirely → Gson leaves it as the default
+     *   (empty list). `HealthGuidance.differentials` then falls back to
+     *   `[possibleCondition]` so UI and sync code see a single-item
+     *   differential rather than an empty list. No DB migration needed.
+     * - New rows carry both fields. `possibleConditions` is the
+     *   canonical ranked list; `possibleCondition` mirrors `[0]` for
+     *   the server ETL and legacy call sites.
+     */
     @TypeConverter fun toGuidance(v: String): HealthGuidance = try {
         gson.fromJson(v, HealthGuidance::class.java) ?: HealthGuidance(
             possibleCondition = "Data recovery error",
