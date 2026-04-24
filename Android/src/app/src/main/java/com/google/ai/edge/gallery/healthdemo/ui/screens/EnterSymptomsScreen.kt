@@ -69,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.google.ai.edge.gallery.healthdemo.data.AppSettings
 import com.google.ai.edge.gallery.healthdemo.data.CRITICAL_DANGER_SIGNS
 import com.google.ai.edge.gallery.healthdemo.data.TraditionalMedicine
 import com.google.ai.edge.gallery.healthdemo.ui.components.DisclaimerBanner
@@ -112,7 +113,14 @@ fun EnterSymptomsScreen(
     var durationUnitExpanded by remember { mutableStateOf(false) }
 
     val dangerSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val roleSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+
+    // #Wave4: role pill is tappable to re-open the role picker inline. Default
+    // the remember toggle to the same logic Landing uses so the UX is
+    // consistent between entry points.
+    var showRoleSheet by remember { mutableStateOf(false) }
+    var rememberRole by remember { mutableStateOf(AppSettings.getRole(context) != null) }
 
     var audioPermissionGranted by remember { mutableStateOf(false) }
     var cameraPermissionGranted by remember { mutableStateOf(false) }
@@ -256,7 +264,17 @@ fun EnterSymptomsScreen(
                         Text("Complete all required fields", fontSize = 13.sp, color = Color(0xFF9E9E9E))
                     }
                     if (displayRole.isNotBlank()) {
-                        Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFFF0F1FA)) {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFFF0F1FA),
+                            modifier = Modifier.clickable {
+                                // Sync the toggle to the latest persisted state
+                                // in case AppSettings changed elsewhere (e.g.
+                                // End Shift on Landing) before we re-opened.
+                                rememberRole = AppSettings.getRole(context) != null
+                                showRoleSheet = true
+                            }
+                        ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -768,6 +786,39 @@ fun EnterSymptomsScreen(
     }
 
     } // end Box wrapper
+
+    // ── Role Sheet (tap-to-switch from pill) ───────────────────────────────────
+    if (showRoleSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showRoleSheet = false },
+            sheetState = roleSheetState,
+            containerColor = Color.White,
+        ) {
+            SelectRoleSheet(
+                viewModel = viewModel,
+                rememberRole = rememberRole,
+                onRememberRoleChange = { rememberRole = it },
+                onContinue = {
+                    val state = viewModel.uiState.value
+                    val role = state.role
+                    if (role != null) {
+                        val labelToSave = if (role == PatientRole.Other && state.customRole.isNotBlank())
+                            state.customRole else role.label
+                        if (rememberRole) AppSettings.saveRole(context, labelToSave)
+                        else AppSettings.saveRole(context, null)
+                    }
+                    scope.launch { roleSheetState.hide() }.invokeOnCompletion {
+                        showRoleSheet = false
+                    }
+                },
+                onDismiss = {
+                    scope.launch { roleSheetState.hide() }.invokeOnCompletion {
+                        showRoleSheet = false
+                    }
+                }
+            )
+        }
+    }
 
     // ── Danger/Warning Sign Sheet ──────────────────────────────────────────────
     val pendingSign = uiState.pendingSignAlert
