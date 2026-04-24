@@ -46,7 +46,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -445,6 +444,19 @@ fun GuidanceScreen(
                         color = Color(0xFF2E7D32)
                     )
                 }
+            }
+
+            // Privacy reassurance (Makerere #6, to match updated wireframes):
+            // remind the clinician that inference ran locally before they hit
+            // Save Assessment / Refer Patient.
+            Spacer(modifier = Modifier.height(10.dp))
+            Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFE8F5E9), modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "\uD83D\uDD12  All data processed on-device. No patient information leaves Uganda.",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    fontSize = 12.sp,
+                    color = Color(0xFF2E7D32),
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
