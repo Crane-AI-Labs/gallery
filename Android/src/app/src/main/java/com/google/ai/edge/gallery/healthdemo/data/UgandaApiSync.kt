@@ -106,7 +106,15 @@ object UgandaApiSync {
             "traditional_medicine_details" to PiiRedactor.redact(assessment.traditionalMedicineDetails).text,
             "guidance" to mapOf(
                 "triage_level" to assessment.guidance.triageLevel,
+                // Keep `condition` as the primary (most-likely) for
+                // compatibility with the existing server ETL, which still
+                // indexes on this field. New `conditions` carries the
+                // full ranked differential list (1-3 entries).
+                // TODO(server): once the ETL starts reading `conditions`,
+                // it can index/aggregate on the full list and eventually
+                // stop reading `condition` as a separate field.
                 "condition" to assessment.guidance.possibleCondition,
+                "conditions" to assessment.guidance.possibleConditions,
                 "confidence" to assessment.guidance.confidence,
                 "treatment" to assessment.guidance.suggestedTreatment,
                 "next_steps" to assessment.guidance.recommendedNextSteps,
