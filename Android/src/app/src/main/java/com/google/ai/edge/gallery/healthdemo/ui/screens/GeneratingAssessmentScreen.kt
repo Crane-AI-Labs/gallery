@@ -51,6 +51,17 @@ fun GeneratingAssessmentScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
+    // Self-heal after process death: if Compose restores the nav stack onto
+    // this screen with no active inference and no result, the ViewModel was
+    // reset by the kill and there's nothing to wait for. Kick off inference
+    // again here — getGuidance() is a no-op if isProcessing is already true,
+    // so the normal button-triggered path is unaffected.
+    LaunchedEffect(Unit) {
+        if (!uiState.isProcessing && uiState.guidance == null && uiState.inferenceError == null) {
+            viewModel.getGuidance()
+        }
+    }
+
     // Terminal state watcher — exit the screen whenever inference stops,
     // win or lose. Previously only success navigated forward, which meant a
     // parser failure (isProcessing=false, guidance=null, inferenceError set)
