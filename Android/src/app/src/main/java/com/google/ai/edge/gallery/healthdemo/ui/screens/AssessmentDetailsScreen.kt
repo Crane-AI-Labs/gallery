@@ -185,6 +185,95 @@ fun AssessmentDetailSheet(
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFE0E0E0)))
             Spacer(modifier = Modifier.height(16.dp))
 
+            // AI Guidance (Makerere #5): the detail sheet was regenerated
+            // without the body of the AI assessment, which was the whole
+            // reason testers went back into Case History — show triage,
+            // condition, treatment bullets, next steps, and red flags.
+            val g = assessment.guidance
+            val triageColor = when {
+                g.triageLevel.contains("Emergency", ignoreCase = true) -> DangerRed
+                g.triageLevel.contains("Urgent", ignoreCase = true) -> Color(0xFFE65100)
+                g.triageLevel.contains("Routine", ignoreCase = true) -> Color(0xFF2E7D32)
+                g.triageLevel.contains("Home", ignoreCase = true) -> Color(0xFF1565C0)
+                else -> Color(0xFF616161)
+            }
+            Text("AI Guidance", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+            Spacer(modifier = Modifier.height(8.dp))
+            if (g.triageLevel.isNotBlank()) {
+                Surface(shape = RoundedCornerShape(8.dp), color = triageColor, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(g.triageLevel.uppercase(), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            if (g.possibleCondition.isNotBlank()) {
+                                Text("· ${g.possibleCondition}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.9f))
+                            }
+                        }
+                        if (g.confidence.isNotBlank()) {
+                            Surface(shape = RoundedCornerShape(4.dp), color = Color.White.copy(alpha = 0.2f)) {
+                                Text(
+                                    g.confidence.replaceFirstChar { it.uppercase() },
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    fontSize = 11.sp,
+                                    color = Color.White,
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+            if (g.suggestedTreatment.isNotEmpty()) {
+                Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFFFF8E1), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Suggested Actions", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7B4F00))
+                        Spacer(modifier = Modifier.height(6.dp))
+                        g.suggestedTreatment.forEach { line ->
+                            DetailBullet(text = line, color = Color(0xFF5D4037))
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            if (g.recommendedNextSteps.isNotEmpty()) {
+                Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFE8EAF6), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Next Steps", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyBlue)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        g.recommendedNextSteps.forEach { line ->
+                            DetailBullet(text = line, color = NavyBlue)
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            if (g.redFlags.isNotEmpty()) {
+                Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFFDE8E8), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Red Flags", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DangerRed)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        g.redFlags.forEach { line ->
+                            DetailBullet(text = line, color = DangerRed)
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            // Note: assessment.treatmentAdministered is not persisted in the
+            // Room entity today — it stays in the domain model only for the
+            // current session. Skipping a "Treatment Administered" section
+            // until a migration can carry it into SavedAssessmentEntity.
+            // TODO(followup): add treatmentAdministered column + migration.
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFE0E0E0)))
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Clinician Response
             if (assessment.clinicianConfirmation != null) {
                 Text("Clinician Response", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
@@ -264,18 +353,29 @@ fun AssessmentDetailSheet(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Session Timeline
+            // Session Timeline (Makerere #7/#8)
             Text("Session Timeline", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
             Spacer(modifier = Modifier.height(12.dp))
 
+            // Defensive ordering: some legacy rows have sessionStartTime
+            // rehydrated from a default (post-load) that can be later than
+            // timestamp. Always show the earlier time as Started.
+            val startMs = minOf(assessment.sessionStartTime, assessment.timestamp)
+            val endMs = maxOf(assessment.sessionStartTime, assessment.timestamp)
             val startStr = SimpleDateFormat("MMM d, yyyy 'at' hh:mm a", Locale.getDefault())
-                .format(Date(assessment.sessionStartTime))
-            val durationMs = assessment.timestamp - assessment.sessionStartTime
+                .format(Date(startMs))
+            val endStr = SimpleDateFormat("MMM d, yyyy 'at' hh:mm a", Locale.getDefault())
+                .format(Date(endMs))
+            val durationMs = endMs - startMs
             val durationMin = (durationMs / 60000).toInt().coerceAtLeast(0)
-            val durationLabel = if (durationMin > 0) "$durationMin min active" else "< 1 min"
+            val durationLabel = when {
+                durationMs <= 0L -> null          // pre-migration row — no duration known
+                durationMin == 0 -> "< 1 min"
+                else -> "$durationMin min active"
+            }
             TimelineRowDetail(dotColor = Color(0xFF4CAF50), label = "Started", time = startStr, isGreen = true)
             Spacer(modifier = Modifier.height(10.dp))
-            TimelineRowDetail(dotColor = Color(0xFF444746), label = "Completed", time = dateStr, subtitle = durationLabel)
+            TimelineRowDetail(dotColor = Color(0xFF444746), label = "Completed", time = endStr, subtitle = durationLabel)
 
             Spacer(modifier = Modifier.height(24.dp))
         }
@@ -291,6 +391,15 @@ private fun DetailInfoRow(label: String, value: @Composable () -> Unit) {
     ) {
         Text(label, fontSize = 14.sp, color = Color(0xFF9E9E9E))
         value()
+    }
+}
+
+@Composable
+private fun DetailBullet(text: String, color: Color) {
+    Row(verticalAlignment = Alignment.Top) {
+        Box(modifier = Modifier.padding(top = 6.dp).size(5.dp).background(color.copy(alpha = 0.7f), androidx.compose.foundation.shape.CircleShape))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text, fontSize = 13.sp, color = Color(0xFF1F1F1F), lineHeight = 19.sp)
     }
 }
 

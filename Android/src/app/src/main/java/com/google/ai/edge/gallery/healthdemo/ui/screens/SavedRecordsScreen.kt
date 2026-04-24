@@ -74,7 +74,14 @@ fun SavedRecordsScreen(
     val detailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
 
-    val selectedAssessment = selectedAssessmentId?.let { id -> assessments.find { it.id == id } }
+    // Makerere #5: snapshot the selected assessment when the row is tapped
+    // instead of recomputing .find() on every Room emission. Fixes the
+    // flicker testers saw when sync timestamps (syncedAt) moved and the
+    // entire list re-emitted while the detail sheet was open. We only
+    // refresh if the id changes (different row selected).
+    val selectedAssessment: SavedAssessment? = remember(selectedAssessmentId) {
+        selectedAssessmentId?.let { id -> assessments.find { it.id == id } }
+    }
 
     Column(
         modifier = Modifier

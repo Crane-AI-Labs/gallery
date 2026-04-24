@@ -25,7 +25,7 @@ private const val TAG = "HealthDatabase"
 
 @Database(
     entities = [SavedAssessmentEntity::class, PausedConsultationEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(HealthTypeConverters::class)
@@ -88,10 +88,22 @@ abstract class HealthDatabase : RoomDatabase() {
             }
         }
 
+        /** Migration 4→5 (Makerere #7): persist sessionStartTime so the Case
+         *  Details Session Timeline can render "Started / Completed" times
+         *  correctly after app restart. Existing rows get NULL, which the
+         *  entity-to-domain mapper falls back to the saved `timestamp`. */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN sessionStartTime INTEGER DEFAULT NULL")
+                Log.d(TAG, "Migration 4→5 complete: added sessionStartTime")
+            }
+        }
+
         private val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
+            MIGRATION_4_5,
         )
 
         fun getInstance(context: Context): HealthDatabase {

@@ -15,6 +15,13 @@ import kotlinx.coroutines.flow.Flow
 data class SavedAssessmentEntity(
     @PrimaryKey val id: String,
     val timestamp: Long,
+    // Makerere #7 (2026-04-24): session start (when the clinician opened
+    // the symptom entry screen) was previously dropped on persist because
+    // SavedAssessment had the field but the entity didn't. Session Timeline
+    // then rehydrated it as `now()` and the "Started / Completed" rows
+    // looked swapped. Stored as nullable so rows saved before migration 4→5
+    // show as timestamp-only (no duration) instead of negative deltas.
+    val sessionStartTime: Long? = null,
     val role: PatientRole,
     val customRole: String,
     val symptoms: String,
@@ -43,7 +50,9 @@ data class SavedAssessmentEntity(
 )
 
 fun SavedAssessment.toEntity() = SavedAssessmentEntity(
-    id = id, timestamp = timestamp, role = role, customRole = customRole,
+    id = id, timestamp = timestamp,
+    sessionStartTime = sessionStartTime.takeIf { it != 0L },
+    role = role, customRole = customRole,
     symptoms = symptoms, durationValue = durationValue, durationUnit = durationUnit,
     ageYears = ageYears, ageMonths = ageMonths,
     age = age, sex = sex, vitalSigns = vitalSigns, confirmedSigns = confirmedSigns,
@@ -53,7 +62,12 @@ fun SavedAssessment.toEntity() = SavedAssessmentEntity(
 )
 
 fun SavedAssessmentEntity.toDomain() = SavedAssessment(
-    id = id, timestamp = timestamp, role = role, customRole = customRole,
+    id = id, timestamp = timestamp,
+    // Pre-migration rows don't have sessionStartTime — fall back to
+    // timestamp so the Session Timeline shows the same time on both
+    // Started and Completed rather than a nonsensical "now".
+    sessionStartTime = sessionStartTime ?: timestamp,
+    role = role, customRole = customRole,
     symptoms = symptoms, durationValue = durationValue, durationUnit = durationUnit,
     ageYears = ageYears, ageMonths = ageMonths,
     age = age, sex = sex, vitalSigns = vitalSigns, confirmedSigns = confirmedSigns,
