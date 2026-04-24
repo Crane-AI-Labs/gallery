@@ -267,6 +267,13 @@ fun AssessmentDetailSheet(
         item(key = "ai") {
             SectionHeading("AI Assessment")
             Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                // Use the HealthGuidance.differentials helper — falls back
+                // to [possibleCondition] for legacy rows so this block
+                // renders identically whether or not the row was saved
+                // before the ranked-list migration.
+                val differentials = g.differentials
+                val primaryCondition = differentials.firstOrNull() ?: g.possibleCondition
+                val alsoConsider = if (differentials.size > 1) differentials.drop(1) else emptyList()
                 if (g.triageLevel.isNotBlank()) {
                     Surface(shape = RoundedCornerShape(8.dp), color = triageColor, modifier = Modifier.fillMaxWidth()) {
                         Row(
@@ -275,8 +282,8 @@ fun AssessmentDetailSheet(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(g.triageLevel.uppercase(), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                if (g.possibleCondition.isNotBlank()) {
-                                    Text("· ${g.possibleCondition}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.9f))
+                                if (primaryCondition.isNotBlank()) {
+                                    Text("· $primaryCondition", fontSize = 12.sp, color = Color.White.copy(alpha = 0.9f))
                                 }
                             }
                             if (g.confidence.isNotBlank()) {
@@ -292,9 +299,30 @@ fun AssessmentDetailSheet(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
-                if (g.possibleCondition.isNotBlank()) {
+                if (primaryCondition.isNotBlank()) {
                     DetailInfoRow("Possible Condition") {
-                        Text(g.possibleCondition, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F1F1F))
+                        Text(primaryCondition, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F1F1F))
+                    }
+                }
+                if (alsoConsider.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text(
+                            "Also consider:",
+                            fontSize = 12.sp,
+                            color = Color(0xFF9E9E9E),
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            alsoConsider.joinToString(" \u00B7 "),
+                            fontSize = 12.sp,
+                            color = Color(0xFF444746),
+                            lineHeight = 16.sp,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
                 if (g.confidence.isNotBlank()) {

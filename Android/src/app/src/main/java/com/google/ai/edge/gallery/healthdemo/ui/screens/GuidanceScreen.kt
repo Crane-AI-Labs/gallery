@@ -213,6 +213,13 @@ fun GuidanceScreen(
 
             // Triage badge
             if (guidance.triageLevel.isNotBlank()) {
+                // Primary condition goes on the badge; any additional
+                // differentials render below as a subtler "Also consider:"
+                // row so the clinician sees the full ranked list without
+                // losing the emphasis of the most-likely guess.
+                val differentials = guidance.differentials
+                val primary = differentials.firstOrNull() ?: guidance.possibleCondition
+                val alsoConsider = if (differentials.size > 1) differentials.drop(1) else emptyList()
                 Surface(shape = RoundedCornerShape(8.dp), color = triageColor, modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -225,9 +232,9 @@ fun GuidanceScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
-                            if (guidance.possibleCondition.isNotBlank()) {
+                            if (primary.isNotBlank()) {
                                 Text(
-                                    "· ${guidance.possibleCondition}",
+                                    "· $primary",
                                     fontSize = 12.sp,
                                     color = Color.White.copy(alpha = 0.9f)
                                 )
@@ -243,6 +250,28 @@ fun GuidanceScreen(
                                 )
                             }
                         }
+                    }
+                }
+                if (alsoConsider.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text(
+                            "Also consider:",
+                            fontSize = 11.sp,
+                            color = Color(0xFF9E9E9E),
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            alsoConsider.joinToString(" \u00B7 "),
+                            fontSize = 11.sp,
+                            color = Color(0xFF444746),
+                            lineHeight = 15.sp,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
