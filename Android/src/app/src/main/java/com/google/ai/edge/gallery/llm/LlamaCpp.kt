@@ -96,7 +96,15 @@ object LlamaCpp {
         modelPath: String,
         nCtx: Int,
         nGpuLayers: Int,
-        kvCacheType: Int = 2,
+        // Default flipped 2026-04-25 from Q4_0 (code=2) to TurboQuant 4-bit
+        // (code=4). The TurboQuant kernels in cpp/ggml-turbo-quant.c are a
+        // PolarQuant rotation specifically designed for KV cache (head_dim=128
+        // blocks, sparse-V dequant, boundary V at q8_0). They were compiled in
+        // since 5c0629b but never dispatched because we kept the default at
+        // standard Q4_0 KV. arXiv 2504.19874 reports up to 22.8% faster decode
+        // on long contexts vs Q4_0 KV. Weight format is unaffected — same
+        // Q4_K_M GGUF works.
+        kvCacheType: Int = 4,
         nBatch: Int = 2048
     ): Long {
         if (!nativeLoaded) return 0L
