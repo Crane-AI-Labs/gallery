@@ -22,8 +22,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -470,15 +473,20 @@ fun GuidanceScreen(
             // Saved banner moved to bottom actions (online-aware variant).
             // Keeping only the single Uganda sync status toast there avoids
             // the duplicate green banner clinicians saw in the field.
-            //
-            // Privacy reassurance ("All data processed on-device …") removed
-            // from this screen 2026-04-25: it duplicated the consent flow's
-            // disclosure, was slightly misleading (data does leave the phone
-            // when synced — staying in-country, not on-device), and competed
-            // with the AI guidance content for attention at the moment of
-            // clinical decision-making. The persistent DisclaimerBanner at
-            // the top of the screen and the Settings → Delete my data flow
-            // already carry the trust message.
+
+            // Privacy reassurance — kept here as a wireframe element. Restored
+            // 2026-04-25 after a brief removal: the Crane-AI-Labs design
+            // intent is to surface the in-country guarantee on the result
+            // page where the clinician makes the call to share data.
+            Spacer(modifier = Modifier.height(10.dp))
+            Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFE8F5E9), modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "\uD83D\uDD12  All data processed on-device. No patient information leaves Uganda.",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    fontSize = 12.sp,
+                    color = Color(0xFF2E7D32),
+                )
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
         }
@@ -541,6 +549,13 @@ fun GuidanceScreen(
                         if (uiState.clinicianAcknowledged) NavyBlue else Color(0xFFE0E0E0)
                     )
                 ) {
+                    Icon(
+                        Icons.Default.Send,
+                        contentDescription = null,
+                        tint = if (uiState.clinicianAcknowledged) NavyBlue else Color(0xFFBDBDBD),
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         "Refer",
                         fontSize = 13.sp,
@@ -556,6 +571,13 @@ fun GuidanceScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, OrangeGold)
                 ) {
+                    Icon(
+                        Icons.Default.Pause,
+                        contentDescription = null,
+                        tint = OrangeGold,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text("Pause", fontSize = 13.sp, color = OrangeGold, fontWeight = FontWeight.Medium)
                 }
 
@@ -569,6 +591,13 @@ fun GuidanceScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, NavyBlue)
                 ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = null,
+                        tint = NavyBlue,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text("New", fontSize = 13.sp, color = NavyBlue, fontWeight = FontWeight.Medium)
                 }
             }
