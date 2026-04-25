@@ -96,15 +96,12 @@ object LlamaCpp {
         modelPath: String,
         nCtx: Int,
         nGpuLayers: Int,
-        // Default flipped 2026-04-25 from Q4_0 (code=2) to TurboQuant 4-bit
-        // (code=4). The TurboQuant kernels in cpp/ggml-turbo-quant.c are a
-        // PolarQuant rotation specifically designed for KV cache (head_dim=128
-        // blocks, sparse-V dequant, boundary V at q8_0). They were compiled in
-        // since 5c0629b but never dispatched because we kept the default at
-        // standard Q4_0 KV. arXiv 2504.19874 reports up to 22.8% faster decode
-        // on long contexts vs Q4_0 KV. Weight format is unaffected — same
-        // Q4_K_M GGUF works.
-        kvCacheType: Int = 4,
+        // TurboQuant KV (code=3/4) crashes inside lm_ggml_compute_forward_flash_attn_ext
+        // — the TURBO3_0/TURBO4_0 types are wired through llama-graph.cpp and
+        // llama-kv-cache.cpp but ggml-cpu/ops.cpp flash-attn has no dispatch
+        // for them, so MedGemma's FA path reads them as garbage. Stay on Q4_0
+        // KV until the FA kernel learns the TurboQuant layout.
+        kvCacheType: Int = 2,
         nBatch: Int = 2048
     ): Long {
         if (!nativeLoaded) return 0L
