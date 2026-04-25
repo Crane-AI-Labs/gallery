@@ -470,19 +470,15 @@ fun GuidanceScreen(
             // Saved banner moved to bottom actions (online-aware variant).
             // Keeping only the single Uganda sync status toast there avoids
             // the duplicate green banner clinicians saw in the field.
-
-            // Privacy reassurance (Makerere #6, to match updated wireframes):
-            // remind the clinician that inference ran locally before they hit
-            // Save Assessment / Refer Patient.
-            Spacer(modifier = Modifier.height(10.dp))
-            Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFE8F5E9), modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "\uD83D\uDD12  All data processed on-device. No patient information leaves Uganda.",
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    fontSize = 12.sp,
-                    color = Color(0xFF2E7D32),
-                )
-            }
+            //
+            // Privacy reassurance ("All data processed on-device …") removed
+            // from this screen 2026-04-25: it duplicated the consent flow's
+            // disclosure, was slightly misleading (data does leave the phone
+            // when synced — staying in-country, not on-device), and competed
+            // with the AI guidance content for attention at the moment of
+            // clinical decision-making. The persistent DisclaimerBanner at
+            // the top of the screen and the Settings → Delete my data flow
+            // already carry the trust message.
 
             Spacer(modifier = Modifier.height(24.dp))
         }
