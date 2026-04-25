@@ -25,7 +25,7 @@ private const val TAG = "HealthDatabase"
 
 @Database(
     entities = [SavedAssessmentEntity::class, PausedConsultationEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 @TypeConverters(HealthTypeConverters::class)
@@ -113,12 +113,24 @@ abstract class HealthDatabase : RoomDatabase() {
             }
         }
 
+        /** Migration 6→7 (2026-04-25): persist wall-clock inference latency
+         *  per assessment so the data team can analyse generation time
+         *  alongside chipset/RAM. Existing rows get NULL — they were
+         *  saved before we measured this. */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN inferenceMs INTEGER DEFAULT NULL")
+                Log.d(TAG, "Migration 6→7 complete: added inferenceMs")
+            }
+        }
+
         private val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
             MIGRATION_5_6,
+            MIGRATION_6_7,
         )
 
         fun getInstance(context: Context): HealthDatabase {

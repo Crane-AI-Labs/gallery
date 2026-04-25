@@ -305,5 +305,10 @@ data class SavedAssessment(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val locationAccuracyMeters: Float? = null,
-    val district: String? = null
+    val district: String? = null,
+    // Wall-clock ms from kicking off MedGemma inference to receiving the
+    // structured guidance. Includes any retries inside
+    // runMedGemmaInferenceWithRetry. Null on rows saved before
+    // migration 6→7 — the field didn't exist then.
+    val inferenceMs: Long? = null,
 )

@@ -234,6 +234,10 @@ class AssessmentPayload(BaseModel):
     referral: Referral | None = None
     location: Location = Field(default_factory=Location)
     device: Device = Field(default_factory=Device)
+    # Wall-clock generation latency in ms. Bounded by the client-side
+    # INFERENCE_TIMEOUT_MS (60s); allow up to 5 min in case we relax
+    # that later. None for legacy clients (pre-1.0.4).
+    inference_ms: int | None = Field(default=None, ge=0, le=300_000)
 
 
 class PausedPayload(BaseModel):
@@ -323,7 +327,8 @@ async def post_assessment(
                     latitude, longitude, location_accuracy_m, district,
                     device_model, device_manufacturer, chipset, android_api, android_version,
                     total_ram_mb, max_cpu_freq_mhz, cpu_count, native_variant, perf_cores,
-                    recommended_n_batch, app_version
+                    recommended_n_batch, app_version,
+                    inference_ms
                 ) VALUES (
                     $1, $2, now(), $3,
                     $4, $5, $6, $7, $8,
@@ -336,7 +341,8 @@ async def post_assessment(
                     $29, $30, $31, $32,
                     $33, $34, $35, $36, $37,
                     $38, $39, $40, $41, $42,
-                    $43, $44
+                    $43, $44,
+                    $45
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     -- Client is offline-first, so re-POSTs always carry the
@@ -385,6 +391,11 @@ async def post_assessment(
                     perf_cores = EXCLUDED.perf_cores,
                     recommended_n_batch = EXCLUDED.recommended_n_batch,
                     app_version = EXCLUDED.app_version,
+                    -- Keep the original measurement when the client re-POSTs
+                    -- after a confirmation/referral edit — those round-trips
+                    -- don't re-run inference. Only overwrite if we actually
+                    -- received a new value.
+                    inference_ms = COALESCE(EXCLUDED.inference_ms, tier_1_identified.assessments.inference_ms),
                     -- Only re-queue NER when the free-text fields actually
                     -- changed. An OS version bump or a new confirmation on an
                     -- untouched symptoms field shouldn't thrash Presidio.
@@ -430,6 +441,7 @@ async def post_assessment(
                 payload.device.cpu_count, payload.device.native_variant,
                 payload.device.perf_cores,
                 payload.device.recommended_n_batch, payload.device.app_version,
+                payload.inference_ms,
             )
             await conn.execute(
                 """

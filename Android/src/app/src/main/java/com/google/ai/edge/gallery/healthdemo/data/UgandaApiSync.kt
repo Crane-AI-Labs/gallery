@@ -142,6 +142,9 @@ object UgandaApiSync {
                 "district" to assessment.district,
             ),
             "device" to buildDevice(context),
+            // Wall-clock generation latency (ms). Null on rows saved
+            // before migration 6→7 — server treats null as unknown.
+            "inference_ms" to assessment.inferenceMs,
         )
 
         val ok = UgandaApi.postJson(context, "/assessments", payload)

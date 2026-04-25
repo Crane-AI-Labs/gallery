@@ -66,6 +66,12 @@ CREATE TABLE IF NOT EXISTS assessments (
     recommended_n_batch      INTEGER,
     app_version              TEXT,
 
+    -- Wall-clock inference latency (ms) — what the user actually waited
+    -- from "submit" to "guidance returned". Includes any client-side
+    -- retries inside runMedGemmaInferenceWithRetry. Null on rows synced
+    -- by clients pre-1.0.4 — they didn't send this field.
+    inference_ms             BIGINT,
+
     -- PII scan state (set by ETL)
     ner_scanned_at           TIMESTAMPTZ,
     ner_flagged              BOOLEAN DEFAULT FALSE
@@ -161,6 +167,7 @@ CREATE TABLE IF NOT EXISTS assessments (
     total_ram_mb            BIGINT,
     native_variant          TEXT,
     app_version             TEXT,
+    inference_ms            BIGINT,
 
     promoted_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -208,7 +208,8 @@ def promote_batch(conn) -> int:
                         guidance_used, final_action, issue_tags,
                         referral_urgency, referral_destination,
                         district,
-                        chipset, total_ram_mb, native_variant, app_version
+                        chipset, total_ram_mb, native_variant, app_version,
+                        inference_ms
                     ) VALUES (
                         %s, %s, %s,
                         %s, %s, %s, %s,
@@ -218,10 +219,12 @@ def promote_batch(conn) -> int:
                         %s, %s, %s,
                         %s, %s,
                         %s,
-                        %s, %s, %s, %s
+                        %s, %s, %s, %s,
+                        %s
                     ) ON CONFLICT (pseudonym) DO UPDATE SET
                         symptoms_redacted = EXCLUDED.symptoms_redacted,
                         condition_redacted = EXCLUDED.condition_redacted,
+                        inference_ms = COALESCE(EXCLUDED.inference_ms, tier_2_analytics.assessments.inference_ms),
                         promoted_at = now()
                     """,
                     (
@@ -237,6 +240,7 @@ def promote_batch(conn) -> int:
                         row["referral_urgency"], row["referral_destination"],
                         row["district"],
                         row["chipset"], row["total_ram_mb"], row["native_variant"], row["app_version"],
+                        row.get("inference_ms"),
                     ),
                 )
                 cur.execute(

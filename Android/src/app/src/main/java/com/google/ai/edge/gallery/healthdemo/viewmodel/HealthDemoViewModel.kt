@@ -111,6 +111,11 @@ data class HealthDemoUiState(
     // Voice note state
     val isRecording: Boolean = false,
     val isTranscribing: Boolean = false,
+
+    // Wall-clock ms for the most recent inference. Captured in
+    // getGuidance() once inference returns, copied onto the saved
+    // assessment in buildSavedAssessment(). Null until the first run.
+    val lastInferenceMs: Long? = null,
 )
 
 @HiltViewModel
@@ -380,7 +385,12 @@ class HealthDemoViewModel @Inject constructor(
                     HealthDemoAnalytics.logInferenceCompleted(
                         appContext, durationMs, hasImage = state.capturedImageBytes != null
                     )
-                    _uiState.update { it.copy(guidance = result, savedAssessment = null, isProcessing = false) }
+                    _uiState.update { it.copy(
+                        guidance = result,
+                        savedAssessment = null,
+                        isProcessing = false,
+                        lastInferenceMs = durationMs,
+                    ) }
                 } else if (durationMs >= INFERENCE_TIMEOUT_MS) {
                     // Watchdog fired — abort the native call so the next
                     // attempt isn't starved waiting on the same thread.
@@ -621,7 +631,8 @@ class HealthDemoViewModel @Inject constructor(
             guidance = state.guidance!!,
             latitude = state.capturedLocation?.latitude,
             longitude = state.capturedLocation?.longitude,
-            locationAccuracyMeters = state.capturedLocation?.accuracyMeters
+            locationAccuracyMeters = state.capturedLocation?.accuracyMeters,
+            inferenceMs = state.lastInferenceMs,
         )
     }
 

@@ -49,6 +49,8 @@ data class SavedAssessmentEntity(
     val longitude: Double? = null,
     val locationAccuracyMeters: Float? = null,
     val district: String? = null,
+    // Wall-clock generation latency (ms). Migration 6→7. Null on legacy rows.
+    val inferenceMs: Long? = null,
     // Sync: ms timestamp of the last successful POST to the Uganda API,
     // or null if never uploaded. Used to skip already-synced rows during
     // startup backfill so we don't re-push everything every launch.
@@ -66,7 +68,8 @@ fun SavedAssessment.toEntity() = SavedAssessmentEntity(
     traditionalMedicineDetails = traditionalMedicineDetails,
     guidance = guidance, clinicianConfirmation = clinicianConfirmation, referralInfo = referralInfo,
     latitude = latitude, longitude = longitude,
-    locationAccuracyMeters = locationAccuracyMeters, district = district
+    locationAccuracyMeters = locationAccuracyMeters, district = district,
+    inferenceMs = inferenceMs,
 )
 
 fun SavedAssessmentEntity.toDomain() = SavedAssessment(
@@ -83,7 +86,8 @@ fun SavedAssessmentEntity.toDomain() = SavedAssessment(
     traditionalMedicineDetails = traditionalMedicineDetails,
     guidance = guidance, clinicianConfirmation = clinicianConfirmation, referralInfo = referralInfo,
     latitude = latitude, longitude = longitude,
-    locationAccuracyMeters = locationAccuracyMeters, district = district
+    locationAccuracyMeters = locationAccuracyMeters, district = district,
+    inferenceMs = inferenceMs,
 )
 
 @Dao
