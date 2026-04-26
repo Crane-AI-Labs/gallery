@@ -382,24 +382,30 @@ class HealthDemoViewModel @Inject constructor(
         // Prevent concurrent inference — native code is not thread-safe
         if (_uiState.value.isProcessing) return
 
-        // Pre-flight RAM check. The 2.5 GB Q4_K_M model + KV cache + activations
-        // need ~3 GB resident at peak. On low-RAM phones (Galaxy A06, ~3.7 GB
-        // total, ~1.7 GB available) lmkd evicts the foreground process at
-        // ~30s into prompt processing — silently, with no error. Surface a
-        // clear message instead of letting the user wait on a spinner that
-        // will never finish. Threshold 2200 MB picked from field data:
-        // A06 (~1.7 GB avail) consistently OOMs, A26 (~3 GB avail) succeeds.
-        val availableMb = DeviceInfo.availableRamMb(appContext)
-        if (availableMb < 2200) {
-            _uiState.update {
-                it.copy(
-                    isProcessing = false,
-                    inferenceError = "Only ${availableMb} MB of RAM is free, but the AI model needs at least 2.2 GB. " +
-                        "Close other apps and try again."
-                )
+        // Pre-flight RAM check — but ONLY on cold model load. Once the model
+        // is resident (modelHandle != 0L) we've already proven the device
+        // can hold it; the loaded weights themselves consume ~2.7 GB so
+        // AvailMem will look "low" indefinitely thereafter and the gate
+        // would block every second assessment in the same session. The
+        // reason this gate exists is the silent OOM-kill on Galaxy A06
+        // (~3.7 GB total, ~1.7 GB free) during cold model load — which
+        // only happens before modelHandle is set. Threshold 2200 MB
+        // picked from field data: A06 cold-loads consistently OOM, A26
+        // (~3 GB avail at boot) succeeds. Bug fix in 1.0.11: was firing
+        // on warm runs too and blocking KV-cache reuse across assessments.
+        if (modelHandle == 0L) {
+            val availableMb = DeviceInfo.availableRamMb(appContext)
+            if (availableMb < 2200) {
+                _uiState.update {
+                    it.copy(
+                        isProcessing = false,
+                        inferenceError = "Only ${availableMb} MB of RAM is free, but the AI model needs at least 2.2 GB. " +
+                            "Close other apps and try again."
+                    )
+                }
+                HealthDemoAnalytics.logInferenceFailed("preflight_low_ram_${availableMb}mb")
+                return
             }
-            HealthDemoAnalytics.logInferenceFailed("preflight_low_ram_${availableMb}mb")
-            return
         }
 
         val state = _uiState.value

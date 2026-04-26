@@ -191,7 +191,9 @@ object GuidanceValidator {
         val finalTriage = when {
             hasConfirmedDangerSign -> {
                 val signs = confirmedSigns.filter { it in CRITICAL_DANGER_SIGNS }
-                warnings.add("SAFETY OVERRIDE: Confirmed danger sign(s) [${signs.joinToString()}] → Emergency referral")
+                val msg = "SAFETY OVERRIDE: Confirmed danger sign(s) [${signs.joinToString()}] → Emergency referral (model said: ${triage})"
+                Log.w(TAG, msg)
+                warnings.add(msg)
                 "Emergency referral"
             }
             confidence == "low" && triage == "Home care" -> {
