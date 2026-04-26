@@ -43,21 +43,32 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val TAG = "HealthDemoViewModel"
-// Trimmed prompts run ~670 tokens and the model usually outputs ~150 tokens
-// (the XML format is dense). 1024 leaves comfortable headroom and halves KV
-// cache memory + bandwidth, which is the second-biggest perf lever after
-// the Q4 weights themselves on dotprod-only chips like the A26's Exynos 1380.
-private const val N_CTX = 1024
+// 1.0.5 dropped this 2048→1024 to halve KV cache footprint on the assumption
+// of a ~670-token prompt; 1.0.7 restored the Emergency + Home examples and
+// pushed prompt size to ~1091 tokens, so 1024 + nPredict=384 = 1475 was
+// triggering native cache eviction every decode (`exceeds n_ctx, clearing
+// cache`). 1.0.9 reverts to 2048 — A26-class hardware has enough RAM to
+// absorb the bigger KV cache, and avoiding the slide-window mid-generate
+// is worth more than the prefill memory savings.
+private const val N_CTX = 2048
 private const val N_GPU_LAYERS = 99  // offload as many layers as possible to GPU
 
 // Hard watchdog for the full inference pipeline (load + first attempt +
 // optional retry). If generation runs past this point the native call is
 // aborted via LlamaCpp.stopCompletion so the UI doesn't sit on the Generating
 // screen indefinitely — field testers at Makerere reported having to kill
-// the app after a minute of spinner on danger-sign cases. Bumped 60s→120s
-// in 1.0.5 to give cold CPUs and slower handsets (Tecno Spark, Itel) headroom
-// for first-token + full decode without false-positive aborts.
-private const val INFERENCE_TIMEOUT_MS = 120_000L
+// the app after a minute of spinner on danger-sign cases.
+//
+// Trajectory:
+//   60s  (initial) — false-positive on Galaxy A26-class hardware
+//   120s (1.0.5)   — covered Pixel 8 / S24 comfortably
+//   240s (1.0.9)   — Galaxy A26 with restored 3-example prompt + ~150
+//                    output tokens runs ~150-180s (dotprod-only, no i8mm).
+//                    4 minutes is the published deadline a clinician will
+//                    tolerate while looking at a spinner; beyond that the
+//                    UX implication is 'this device cannot run inference,
+//                    surface the error and let them retry / refer manually'.
+private const val INFERENCE_TIMEOUT_MS = 240_000L
 
 data class HealthDemoUiState(
     // Role selection
