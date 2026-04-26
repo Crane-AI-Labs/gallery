@@ -395,17 +395,22 @@ class HealthDemoViewModel @Inject constructor(
         // on warm runs too and blocking KV-cache reuse across assessments.
         if (modelHandle == 0L) {
             val availableMb = DeviceInfo.availableRamMb(appContext)
-            // 1.0.13: lowered 2200→1800 because Q3_K_M weights are ~300 MB
-            // smaller than Q4_0 (2.0 GB vs 2.3 GB). Galaxy A06 typically
-            // reports ~2.1 GB AvailMem at app start; the previous 2200
-            // threshold was blocking the very devices Q3_K_M was meant to
-            // unblock. AvailMem on Android is optimistic — actual usable
-            // RAM is lower than reported — so we keep some margin.
-            if (availableMb < 1800) {
+            // 1.0.13: lowered 2200→1500. Galaxy A06 (Samsung One UI 7 stock
+            // overhead: launcher, Bixby, Galaxy Store, Samsung Push) sits at
+            // ~1.7 GB available with NOTHING else open, so any threshold
+            // ≥1800 was making A06 unreachable from cold boot. 1500 is the
+            // empirical floor: model is 2.0 GB Q3_K_M but mmap'd, so peak
+            // resident is bounded by available page cache, not the file
+            // size. 1500 MB AvailMem corresponds to ~1.2 GB actually
+            // usable after kernel+lmkd reservation — tight but the only
+            // honest threshold for this device class. Field deployments
+            // should still see the error message if the user is running
+            // browsers + Maps + WhatsApp simultaneously.
+            if (availableMb < 1500) {
                 _uiState.update {
                     it.copy(
                         isProcessing = false,
-                        inferenceError = "Only ${availableMb} MB of RAM is free, but the AI model needs at least 1.8 GB. " +
+                        inferenceError = "Only ${availableMb} MB of RAM is free, but the AI model needs at least 1.5 GB. " +
                             "Close other apps and try again."
                     )
                 }
