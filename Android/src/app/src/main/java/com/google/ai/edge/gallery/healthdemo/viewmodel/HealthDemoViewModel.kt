@@ -50,9 +50,10 @@ private const val N_GPU_LAYERS = 99  // offload as many layers as possible to GP
 // optional retry). If generation runs past this point the native call is
 // aborted via LlamaCpp.stopCompletion so the UI doesn't sit on the Generating
 // screen indefinitely — field testers at Makerere reported having to kill
-// the app after a minute of spinner on danger-sign cases. 60s is comfortably
-// above the p95 on Pixel 8 (~18s) and a warm Tecno Spark (~35s).
-private const val INFERENCE_TIMEOUT_MS = 60_000L
+// the app after a minute of spinner on danger-sign cases. Bumped 60s→120s
+// in 1.0.5 to give cold CPUs and slower handsets (Tecno Spark, Itel) headroom
+// for first-token + full decode without false-positive aborts.
+private const val INFERENCE_TIMEOUT_MS = 120_000L
 
 data class HealthDemoUiState(
     // Role selection
