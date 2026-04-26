@@ -42,8 +42,8 @@ android {
     applicationId = "com.craneailabs.easehealth"
     minSdk = 31
     targetSdk = 35
-    versionCode = 112
-    versionName = "1.0.12"
+    versionCode = 113
+    versionName = "1.0.13"
 
     // Sentry / GlitchTip DSN — points at our self-hosted GlitchTip on the
     // Uganda VM (DPPA §19 data sovereignty). The /_e/ subpath is the nginx

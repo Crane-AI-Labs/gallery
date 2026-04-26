@@ -19,10 +19,10 @@ object ModelAssetManager {
     private const val TAG = "ModelAssetManager"
     private const val MODELS_DIR = "models"
     private const val VERSION_KEY = "model_asset_version"
-    private const val CURRENT_VERSION = 5  // v5 swaps LLM weights from Q4_K_M -> Q4_0 (faster matmul on dotprod-only chips like Exynos 1380)
+    private const val CURRENT_VERSION = 6  // v6 swaps LLM weights from Q4_0 -> Q3_K_M (~300 MB smaller; targets A06-class 3.7 GB devices that swap-thrashed on Q4_0). Quality cost ~+0.2-0.4 ppl, acceptable for clinical guidance.
 
     // Final model filenames (after reassembly)
-    const val LLM_MODEL = "medgemma-v2.1-instruct-Q4_0.gguf"
+    const val LLM_MODEL = "medgemma-v2.1-instruct-Q3_K_M.gguf"
     const val VISION_MODEL = "medgemma-mmproj-Q8_0.gguf"
     const val ASR_MODEL = "medasr-fp32.onnx"
     const val ASR_TOKENIZER = "medasr-tokenizer.json"
