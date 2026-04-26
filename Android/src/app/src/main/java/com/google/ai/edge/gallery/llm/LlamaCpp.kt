@@ -131,10 +131,14 @@ object LlamaCpp {
         topK: Int,
         topP: Float,
         stopSequences: String,
-        callback: TokenCallback
+        callback: TokenCallback,
+        // 1.0.12: minimum tokens before EOG/EOS is honored. Defends against
+        // the warm-cache-replay-stop pathology where a re-run of an
+        // identical prompt makes the sampler pick EOG immediately.
+        nMinTokens: Int = 5,
     ): String {
         if (!nativeLoaded) return """{"error":"Native library not loaded"}"""
-        return nativeCompletion(handle, prompt, nPredict, temperature, topK, topP, stopSequences, callback)
+        return nativeCompletion(handle, prompt, nPredict, temperature, topK, topP, stopSequences, nMinTokens, callback)
     }
 
     fun stopCompletion(handle: Long) {
@@ -186,7 +190,7 @@ object LlamaCpp {
     private external fun nativeCompletion(
         handle: Long, prompt: String, nPredict: Int,
         temperature: Float, topK: Int, topP: Float,
-        stopSequences: String, callback: TokenCallback
+        stopSequences: String, nMinTokens: Int, callback: TokenCallback
     ): String
     private external fun nativeStopCompletion(handle: Long)
     private external fun nativeClearContext(handle: Long)

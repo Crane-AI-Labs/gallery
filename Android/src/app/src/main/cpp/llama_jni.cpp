@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <limits>
 #include <android/log.h>
 
 #include "llama.h"
@@ -229,6 +230,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
     jint topK,
     jfloat topP,
     jstring stopSequences,
+    jint nMinTokens,
     jobject callback
 ) {
     auto * inf_ctx = reinterpret_cast<inference_context *>(handle);
@@ -334,7 +336,33 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
 
         llama_token new_token = llama_sampler_sample(inf_ctx->sampler, inf_ctx->ctx, -1);
 
-        if (llama_vocab_is_eog(vocab, new_token)) {
+        // min_tokens guard: if the warm KV cache + cache_tokens truncation
+        // leaves the sampler in a state where it instantly emits EOG/EOS
+        // (observed on identical-prompt re-runs in 1.0.11), pick the best
+        // non-EOG token from logits instead so we get a real output and
+        // can hit the actual XML stop on the </r> tag downstream. After
+        // n_min_tokens we accept EOG as a normal stop signal.
+        if (i < nMinTokens && llama_vocab_is_eog(vocab, new_token)) {
+            float * logits = llama_get_logits_ith(inf_ctx->ctx, -1);
+            int n_vocab = llama_vocab_n_tokens(vocab);
+            llama_token best = -1;
+            float best_logit = -std::numeric_limits<float>::infinity();
+            for (int t = 0; t < n_vocab; t++) {
+                if (!llama_vocab_is_eog(vocab, t) && logits[t] > best_logit) {
+                    best_logit = logits[t];
+                    best = t;
+                }
+            }
+            if (best >= 0) {
+                LOGI("min_tokens guard: replaced EOG sample with best non-EOG token at i=%d", i);
+                new_token = best;
+                // Tell the sampler about the actual token we accepted so its
+                // internal history (repetition penalty etc.) stays consistent.
+                llama_sampler_accept(inf_ctx->sampler, new_token);
+            } else {
+                break;
+            }
+        } else if (llama_vocab_is_eog(vocab, new_token)) {
             break;
         }
 
