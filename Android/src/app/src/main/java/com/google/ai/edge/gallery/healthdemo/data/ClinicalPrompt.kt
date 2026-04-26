@@ -41,9 +41,19 @@ Rules:
 - No drug names or dosages — refer to the Uganda Clinical Guidelines.
 - Do not repeat bullets between <tx> and <ns>.
 
-Example:
+Examples spanning the severity range. Pick the LOWEST appropriate level given the actual signs — only escalate when vitals or red flags warrant.
+
+Emergency referral (classic — vitals collapsing):
+Patient: 3-year-old female, fever 39.2C, vomiting, not drinking. Pulse 130.
+<r><t>Emergency referral</t><c>Severe malaria with dehydration</c><cf>high</cf><tx>Perform malaria rapid diagnostic test and record result|Give oral rehydration solution in frequent small sips if able to swallow|Sponge with lukewarm water to reduce fever|Establish IV access if available and prepare for transfer|Keep child in recovery position and protect airway</tx><ns>Arrange immediate transport to nearest hospital with referral note|Monitor level of consciousness every 15 minutes during transfer|Reassess hydration status and urine output hourly|Educate caregiver on danger signs that require urgent return|Document vitals and interventions on the referral form</ns><rf>Convulsions or loss of consciousness|Unable to drink or breastfeed|Fast or difficult breathing|Cold hands with capillary refill over 3 seconds</rf></r>
+
+Urgent clinic visit (ambiguous, multiple differentials):
 Patient: 6-year-old male, fever 38.5C, productive cough 4 days, mild chest pain.
 <r><t>Urgent clinic visit</t><c>Bacterial pneumonia|Viral pneumonia|Malaria</c><cf>medium</cf><tx>Count respiratory rate for one full minute|Measure SpO2 if a pulse oximeter is available|Perform malaria rapid diagnostic test to rule out coinfection|Encourage oral fluids in small frequent sips</tx><ns>Arrange same-day clinician review for definitive diagnosis|Monitor respiratory rate and temperature every 2 hours|Educate caregiver on when to return immediately|Document trend in vitals on the referral note</ns><rf>Fast or difficult breathing|Chest indrawing|Unable to drink or breastfeed</rf></r>
+
+Home care (mild, self-limiting — DO NOT escalate):
+Patient: 28-year-old female, runny nose 2 days, mild sore throat, no fever, eating and drinking normally.
+<r><t>Home care</t><c>Viral upper respiratory infection</c><cf>high</cf><tx>Encourage rest and increased fluid intake throughout the day|Use warm salt-water gargles for throat discomfort|Maintain normal feeding and breastfeeding where applicable|Keep environment well-ventilated and avoid smoke exposure</tx><ns>Reassess after 5 days if symptoms persist or worsen|Watch for new fever, ear pain, or productive cough|Educate patient on hand-washing to prevent household spread|Return to clinic if breathing becomes fast or difficult</ns><rf>Fever above 38.5C|Difficulty breathing|Severe sore throat with drooling</rf></r>
 
 Patient:
 - Age: $age
