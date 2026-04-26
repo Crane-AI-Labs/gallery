@@ -27,6 +27,7 @@ import com.google.ai.edge.gallery.ui.theme.ThemeSettings
 import com.google.ai.edge.gallery.analytics.AnalyticsSyncWorker
 import com.google.ai.edge.gallery.analytics.BatteryAnalytics
 import com.google.ai.edge.gallery.analytics.ConnectivitySyncScheduler
+import com.google.ai.edge.gallery.analytics.CrashReporting
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -40,6 +41,19 @@ class GalleryApplication : Application() {
 
   override fun onCreate() {
     super.onCreate()
+
+    // Initialise crash reporting → self-hosted GlitchTip on the Uganda VM.
+    // Done before any other work so a crash in early init still ships.
+    // The DSN points at https://41.220.3.234/_e/1 — the /_e/ subpath isolates
+    // it from the FastAPI /api/* routes; nginx proxies to GlitchTip on
+    // 127.0.0.1:8002. Keeping all crash data inside Uganda for DPPA §19.
+    CrashReporting.init(
+      context = this,
+      dsn = BuildConfig.SENTRY_DSN,
+      environment = if (BuildConfig.DEBUG) "debug" else "release",
+    )
+    CrashReporting.setCustomKey("app_version", BuildConfig.VERSION_NAME)
+    CrashReporting.setCustomKey("android_api", Build.VERSION.SDK_INT.toString())
 
     // Load saved theme.
     ThemeSettings.themeOverride.value = dataStoreRepository.readTheme()

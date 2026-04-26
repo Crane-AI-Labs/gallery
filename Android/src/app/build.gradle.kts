@@ -42,8 +42,17 @@ android {
     applicationId = "com.craneailabs.easehealth"
     minSdk = 31
     targetSdk = 35
-    versionCode = 109
-    versionName = "1.0.9"
+    versionCode = 110
+    versionName = "1.0.10"
+
+    // Sentry / GlitchTip DSN — points at our self-hosted GlitchTip on the
+    // Uganda VM (DPPA §19 data sovereignty). The /_e/ subpath is the nginx
+    // proxy prefix (avoids conflict with the FastAPI /api/* routes).
+    buildConfigField(
+        "String",
+        "SENTRY_DSN",
+        "\"https://f4c6fd5dfc424d63b469a59bd7413537@41.220.3.234/_e/1\""
+    )
 
     // Needed for HuggingFace auth workflows.
     // Use the scheme of the "Redirect URLs" in HuggingFace app.
@@ -139,6 +148,11 @@ dependencies {
   implementation(libs.room.ktx)
   implementation("net.zetetic:sqlcipher-android:4.6.1@aar")
   implementation("androidx.sqlite:sqlite-ktx:2.4.0")
+  // Crash reporting → self-hosted GlitchTip on the Uganda VM (Sentry-protocol
+  // compatible). Stays inside Uganda for DPPA §19 compliance. NDK variant
+  // captures native crashes from llama_jni / rnllama.
+  implementation(libs.sentry.android)
+  implementation(libs.sentry.android.ndk)
   kapt(libs.room.compiler)
   kapt(libs.hilt.android.compiler)
   testImplementation(libs.junit)

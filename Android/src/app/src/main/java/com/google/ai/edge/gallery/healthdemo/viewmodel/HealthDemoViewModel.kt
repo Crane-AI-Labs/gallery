@@ -603,7 +603,12 @@ class HealthDemoViewModel @Inject constructor(
                 LlamaCpp.completion(
                     handle = modelHandle, prompt = prompt, nPredict = 384,
                     temperature = 0.5f, topK = 40, topP = 0.9f,
-                    stopSequences = "", callback = callback,
+                    // Stop on the closing root tag — the model is supposed
+                    // to emit one self-contained <r>…</r> envelope per
+                    // assessment. Cuts ~20-30% off decode time on dotprod-
+                    // only chips by short-circuiting any post-XML preamble
+                    // the model would otherwise generate up to nPredict.
+                    stopSequences = "</r>", callback = callback,
                 )
             }
         } else {
@@ -614,7 +619,7 @@ class HealthDemoViewModel @Inject constructor(
             LlamaCpp.completion(
                 handle = modelHandle, prompt = prompt, nPredict = 384,
                 temperature = 0.5f, topK = 40, topP = 0.9f,
-                stopSequences = "", callback = callback,
+                stopSequences = "</r>", callback = callback,
             )
         }
 
