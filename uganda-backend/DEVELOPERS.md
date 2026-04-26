@@ -8,7 +8,7 @@ Short guide for a new developer joining the project. If you're trying to query a
 |---|---|---|
 | Metabase dashboards |  `https://41.220.3.234/metabase/` | Admin invites you in Metabase |
 | SSH to the VM | `user@41.220.3.234` (hostname once DNS resolves) | Paste your SSH pubkey in Slack / 1Password |
-| PostgreSQL (via SSH tunnel) | `127.0.0.1:5432` on the VM | `.secrets.env` shared via 1Password |
+| PostgreSQL (via SSH tunnel) | `127.0.0.1:5432` on the VM |  |
 | Repo + deploy scripts | this repo | — |
 
 The VM lives in Kampala for DPPA 2019 §19 compliance. Do not move data out of it.

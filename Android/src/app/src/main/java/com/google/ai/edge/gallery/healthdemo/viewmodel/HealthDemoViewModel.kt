@@ -43,7 +43,11 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val TAG = "HealthDemoViewModel"
-private const val N_CTX = 2048
+// Trimmed prompts run ~670 tokens and the model usually outputs ~150 tokens
+// (the XML format is dense). 1024 leaves comfortable headroom and halves KV
+// cache memory + bandwidth, which is the second-biggest perf lever after
+// the Q4 weights themselves on dotprod-only chips like the A26's Exynos 1380.
+private const val N_CTX = 1024
 private const val N_GPU_LAYERS = 99  // offload as many layers as possible to GPU
 
 // Hard watchdog for the full inference pipeline (load + first attempt +
@@ -366,6 +370,26 @@ class HealthDemoViewModel @Inject constructor(
     fun getGuidance() {
         // Prevent concurrent inference — native code is not thread-safe
         if (_uiState.value.isProcessing) return
+
+        // Pre-flight RAM check. The 2.5 GB Q4_K_M model + KV cache + activations
+        // need ~3 GB resident at peak. On low-RAM phones (Galaxy A06, ~3.7 GB
+        // total, ~1.7 GB available) lmkd evicts the foreground process at
+        // ~30s into prompt processing — silently, with no error. Surface a
+        // clear message instead of letting the user wait on a spinner that
+        // will never finish. Threshold 2200 MB picked from field data:
+        // A06 (~1.7 GB avail) consistently OOMs, A26 (~3 GB avail) succeeds.
+        val availableMb = DeviceInfo.availableRamMb(appContext)
+        if (availableMb < 2200) {
+            _uiState.update {
+                it.copy(
+                    isProcessing = false,
+                    inferenceError = "Only ${availableMb} MB of RAM is free, but the AI model needs at least 2.2 GB. " +
+                        "Close other apps and try again."
+                )
+            }
+            HealthDemoAnalytics.logInferenceFailed("preflight_low_ram_${availableMb}mb")
+            return
+        }
 
         val state = _uiState.value
         _uiState.update { it.copy(isProcessing = true, inferenceError = null) }

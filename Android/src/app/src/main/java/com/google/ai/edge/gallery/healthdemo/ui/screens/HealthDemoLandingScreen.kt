@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -253,6 +254,23 @@ fun HealthDemoLandingScreen(
             ) {
                 Text("End Shift / Switch User", fontSize = 13.sp, color = Color(0xFF9E9E9E))
             }
+        }
+
+        // Settings entry. Previously the parameter was wired in the nav graph
+        // but no UI invoked it, leaving the consent screen's promised "Delete
+        // my data" flow unreachable. This is the gateway for that.
+        androidx.compose.material3.TextButton(
+            onClick = onSettings,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = null,
+                tint = Color(0xFF9E9E9E),
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Settings", fontSize = 13.sp, color = Color(0xFF9E9E9E))
         }
 
         Spacer(modifier = Modifier.weight(1f))

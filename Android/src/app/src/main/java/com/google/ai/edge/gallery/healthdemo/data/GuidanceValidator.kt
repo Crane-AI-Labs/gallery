@@ -81,16 +81,39 @@ object GuidanceValidator {
         val triage = extractTag(text, "t") ?: return null
         val condition = extractTag(text, "c") ?: ""
         val confidence = extractTag(text, "cf") ?: "low"
-        val treatment = extractTag(text, "tx")?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
-        val nextSteps = extractTag(text, "ns")?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
-        val redFlags = extractTag(text, "rf")?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+        // dedupBullets: the model occasionally emits the same instruction twice
+        // (Makerere field test #A26-2 saw "IV fluids" rendered twice on one
+        // case). Distinct on trimmed lowercase form so trivial casing/whitespace
+        // differences also collapse.
+        val treatment = extractTag(text, "tx")?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() }?.let(::dedupBullets) ?: emptyList()
+        val nextSteps = extractTag(text, "ns")?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() }?.let(::dedupBullets) ?: emptyList()
+        val redFlags = extractTag(text, "rf")?.split("|")?.map { it.trim() }?.filter { it.isNotBlank() }?.let(::dedupBullets) ?: emptyList()
 
         return RawFields(triage, condition, confidence, treatment, nextSteps, redFlags)
     }
 
     private fun extractTag(text: String, tag: String): String? {
         val pattern = Regex("<$tag>(.*?)</$tag>", RegexOption.DOT_MATCHES_ALL)
-        return pattern.find(text)?.groupValues?.get(1)?.trim()
+        // The XML payload occasionally contains HTML-entity-escaped content
+        // because the model writes "<" inside strings (e.g. "SpO2 < 90%"),
+        // which our prompt-format expectations interpret as XML. Decoding
+        // here keeps the rendered text readable instead of showing
+        // "SpO2 &lt; 90%" verbatim in the guidance UI.
+        return pattern.find(text)?.groupValues?.get(1)?.let(::decodeHtmlEntities)?.trim()
+    }
+
+    private fun decodeHtmlEntities(s: String): String =
+        s.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            // &amp; last so we don't accidentally double-decode &amp;lt; → "<"
+            .replace("&amp;", "&")
+
+    private fun dedupBullets(items: List<String>): List<String> {
+        val seen = mutableSetOf<String>()
+        return items.filter { seen.add(it.trim().lowercase()) }
     }
 
     // ─── JSON Parsing (legacy fallback) ──────────────────────────────────────────
@@ -274,15 +297,26 @@ object GuidanceValidator {
     // ─── Validators ──────────────────────────────────────────────────────────────
 
     private fun validateTriageCategory(raw: String): String {
-        val normalized = raw.trim().lowercase()
+        // Strip markdown emphasis the model sometimes wraps the label in,
+        // e.g. "**Emergency referral**" or "*** Urgent ***". Without this the
+        // exact-match below misses and we fall through to the looser keyword
+        // path below.
+        val normalized = raw.trim().trim('*', ' ').lowercase()
         for (category in ClinicalPrompt.TRIAGE_CATEGORIES) {
             if (category.lowercase() == normalized) return category
         }
+        // Order matters: check the specific labels before the looser keywords
+        // so "urgent referral" → Urgent (not Emergency). Previously a plain
+        // contains("refer") sent every sentence mentioning a referral
+        // (including legitimate Routine/Home cases that referenced "refer
+        // back to the clinician") into Emergency referral, which is the
+        // single biggest contributor to the Emergency-everywhere pattern
+        // the field testers reported.
         return when {
-            normalized.contains("emergency") || normalized.contains("refer") -> "Emergency referral"
-            normalized.contains("urgent") -> "Urgent clinic visit"
-            normalized.contains("routine") -> "Routine care"
-            normalized.contains("home") -> "Home care"
+            normalized.contains("emergency referral") || normalized.contains("emergency") -> "Emergency referral"
+            normalized.contains("urgent clinic visit") || normalized.contains("urgent") -> "Urgent clinic visit"
+            normalized.contains("routine care") || normalized.contains("routine") -> "Routine care"
+            normalized.contains("home care") || normalized.contains("home") -> "Home care"
             else -> "Urgent clinic visit"
         }
     }

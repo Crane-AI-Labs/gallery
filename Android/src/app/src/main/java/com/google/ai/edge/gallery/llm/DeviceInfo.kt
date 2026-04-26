@@ -45,7 +45,12 @@ object DeviceInfo {
         return when {
             totalMb < 3500 -> 256    // 2-3 GB devices: minimal batch to avoid OOM
             totalMb < 5500 -> 512    // 4-5 GB devices: conservative
-            totalMb < 8500 -> 1024   // 6-8 GB devices: balanced
+            totalMb < 7000 -> 1024   // 6-7 GB devices: balanced
+            // 7-8 GB tier (Galaxy A26 ~ 7.4 GB) bumped 1024 → 2048 in 1.0.5
+            // after field testing showed prompt-processing was the dominant
+            // cost on dotprod-only chips. Doubling the batch roughly halves
+            // the prefill work for the same KV cache footprint.
+            totalMb < 8500 -> 2048
             else -> 2048             // 8+ GB flagships: max throughput
         }
     }
