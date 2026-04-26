@@ -12,3 +12,13 @@
 -keepclasseswithmembernames class * {
     native <methods>;
 }
+
+# ONNX Runtime — same failure mode as the LlamaCpp.TokenCallback bug, on a
+# different native library. libonnxruntime4j_jni does FindClass+GetMethodID
+# lookups by name into ai.onnxruntime.*; R8 was stripping/renaming those
+# classes in release, the first GetMethodID returned java_class==null, and
+# the process aborted (`JNI DETECTED ERROR IN APPLICATION: java_class == null`)
+# the moment the user tapped Voice Note → Stop and we tried OrtSession.run.
+# Keep the whole ONNX surface intact.
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
