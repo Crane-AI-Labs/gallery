@@ -575,7 +575,11 @@ class HealthDemoViewModel @Inject constructor(
                     handle = modelHandle,
                     prompt = visionPrompt,
                     imageData = processedImage,
-                    nPredict = 1024,
+                    // 384 fits prompt(~670) + decode within n_ctx=1024 with
+                    // headroom; native code was previously sliding the cache
+                    // because (656 + 1024) > 1024. Real outputs run ~150
+                    // tokens, so 384 is plenty.
+                    nPredict = 384,
                     temperature = 0.5f,
                     topK = 40,
                     topP = 0.9f,
@@ -586,7 +590,7 @@ class HealthDemoViewModel @Inject constructor(
                 val prompt = buildClinicalPrompt(state)
                 Log.d(TAG, "Running text-only inference (vision unavailable)")
                 LlamaCpp.completion(
-                    handle = modelHandle, prompt = prompt, nPredict = 1024,
+                    handle = modelHandle, prompt = prompt, nPredict = 384,
                     temperature = 0.5f, topK = 40, topP = 0.9f,
                     stopSequences = "", callback = callback,
                 )
@@ -597,7 +601,7 @@ class HealthDemoViewModel @Inject constructor(
             val prompt = buildClinicalPrompt(state)
             Log.d(TAG, "Running text inference (${prompt.length} chars prompt)")
             LlamaCpp.completion(
-                handle = modelHandle, prompt = prompt, nPredict = 1024,
+                handle = modelHandle, prompt = prompt, nPredict = 384,
                 temperature = 0.5f, topK = 40, topP = 0.9f,
                 stopSequences = "", callback = callback,
             )
