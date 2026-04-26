@@ -395,11 +395,17 @@ class HealthDemoViewModel @Inject constructor(
         // on warm runs too and blocking KV-cache reuse across assessments.
         if (modelHandle == 0L) {
             val availableMb = DeviceInfo.availableRamMb(appContext)
-            if (availableMb < 2200) {
+            // 1.0.13: lowered 2200→1800 because Q3_K_M weights are ~300 MB
+            // smaller than Q4_0 (2.0 GB vs 2.3 GB). Galaxy A06 typically
+            // reports ~2.1 GB AvailMem at app start; the previous 2200
+            // threshold was blocking the very devices Q3_K_M was meant to
+            // unblock. AvailMem on Android is optimistic — actual usable
+            // RAM is lower than reported — so we keep some margin.
+            if (availableMb < 1800) {
                 _uiState.update {
                     it.copy(
                         isProcessing = false,
-                        inferenceError = "Only ${availableMb} MB of RAM is free, but the AI model needs at least 2.2 GB. " +
+                        inferenceError = "Only ${availableMb} MB of RAM is free, but the AI model needs at least 1.8 GB. " +
                             "Close other apps and try again."
                     )
                 }
@@ -535,9 +541,17 @@ class HealthDemoViewModel @Inject constructor(
 
             // Tune n_batch to device RAM to avoid OOM on budget phones
             val nBatch = DeviceInfo.recommendedNBatch(appContext)
+            // Tier-aware n_ctx (1.0.13). A06-class devices (~3.7 GB total)
+            // can't afford the 2048-token KV cache the higher-RAM tier uses.
+            // Trimmed prompt is 1091 tokens; with nPredict=384 we need at
+            // least 1475 in the cache. 1536 gives ~60-token margin and
+            // halves KV memory + bandwidth on the device class that needs
+            // it most. Higher-RAM phones keep the 2048 default.
+            val totalRamMb = DeviceInfo.totalRamMb(appContext)
+            val nCtx = if (totalRamMb < 4500) 1536 else N_CTX
             modelHandle = LlamaCpp.initModel(
                 modelPath = modelPath,
-                nCtx = N_CTX,
+                nCtx = nCtx,
                 nGpuLayers = N_GPU_LAYERS,
                 nBatch = nBatch
             )
