@@ -546,17 +546,9 @@ class HealthDemoViewModel @Inject constructor(
 
             // Tune n_batch to device RAM to avoid OOM on budget phones
             val nBatch = DeviceInfo.recommendedNBatch(appContext)
-            // Tier-aware n_ctx (1.0.13). A06-class devices (~3.7 GB total)
-            // can't afford the 2048-token KV cache the higher-RAM tier uses.
-            // Trimmed prompt is 1091 tokens; with nPredict=384 we need at
-            // least 1475 in the cache. 1536 gives ~60-token margin and
-            // halves KV memory + bandwidth on the device class that needs
-            // it most. Higher-RAM phones keep the 2048 default.
-            val totalRamMb = DeviceInfo.totalRamMb(appContext)
-            val nCtx = if (totalRamMb < 4500) 1536 else N_CTX
             modelHandle = LlamaCpp.initModel(
                 modelPath = modelPath,
-                nCtx = nCtx,
+                nCtx = N_CTX,
                 nGpuLayers = N_GPU_LAYERS,
                 nBatch = nBatch
             )
