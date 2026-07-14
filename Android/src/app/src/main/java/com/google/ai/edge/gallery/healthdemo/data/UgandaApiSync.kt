@@ -70,11 +70,11 @@ object UgandaApiSync {
         val payload: Map<String, Any?> = mapOf(
             "id" to assessment.id,
             "timestamp" to assessment.timestamp,
-            "role" to assessment.role.name,
+            "role" to (assessment.role?.name ?: PatientRole.Other.name),
             "custom_role" to assessment.customRole,
             "symptoms" to symptomsRedaction.text,
             "duration_value" to assessment.durationValue,
-            "duration_unit" to assessment.durationUnit.name,
+            "duration_unit" to (assessment.durationUnit?.name ?: DurationUnit.Days.name),
             "age" to assessment.age?.label,
             "age_years" to assessment.ageYears,
             "age_months" to assessment.ageMonths,
@@ -124,14 +124,14 @@ object UgandaApiSync {
                 mapOf(
                     "guidance_used" to c.guidanceUsed?.name,
                     "final_action" to c.finalAction?.name,
-                    "issue_tags" to c.issueTags.map { it.name },
+                    "issue_tags" to c.issueTags.mapNotNull { it?.name },
                 )
             },
             "referral" to assessment.referralInfo?.let { r ->
                 mapOf(
-                    "urgency" to r.urgency.name,
+                    "urgency" to (r.urgency?.name ?: "Routine"),
                     "destination" to r.destination?.name,
-                    "reasons" to r.reasons.map { it.name },
+                    "reasons" to r.reasons.mapNotNull { it?.name },
                     "notes" to notesRedaction.text,
                 )
             },
@@ -160,7 +160,7 @@ object UgandaApiSync {
         val payload: Map<String, Any?> = mapOf(
             "id" to paused.id,
             "timestamp" to paused.timestamp,
-            "role" to paused.role.name,
+            "role" to paused.role?.name,
             "symptoms" to symptomsRedaction.text,
             "age" to paused.age?.label,
             "age_years" to paused.ageYears,

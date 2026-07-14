@@ -109,6 +109,11 @@ fun EnterSymptomsScreen(
 
     // #07: record session start at screen open, not at first keystroke
     LaunchedEffect(Unit) { viewModel.markSessionStart() }
+    // Prewarm MedGemma (load + prefill the constant prefix) in the background
+    // while the worker enters symptoms, so the first Generate skips the cold
+    // prefill. Idempotent + RAM-gated + serialized behind the inference
+    // executor, so it can never race the actual assessment.
+    LaunchedEffect(Unit) { viewModel.prewarm() }
 
     var durationUnitExpanded by remember { mutableStateOf(false) }
 
@@ -310,9 +315,14 @@ fun EnterSymptomsScreen(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Voice + Image (immediately after symptom entry)
-                // #10: English-only disclaimer for voice input
+                // #10: language disclaimer for voice input. The ganda flavor
+                // transcribes Luganda then drafts an English translation the
+                // worker must review — say so instead of the English-only text.
                 Text(
-                    "English only — transcribes speech, does not translate.",
+                    if (com.google.ai.edge.gallery.BuildConfig.FLAVOR == "ganda")
+                        "Speak in Luganda — an English draft will appear below. Review it before generating."
+                    else
+                        "English only — transcribes speech, does not translate.",
                     fontSize = 12.sp,
                     color = Color(0xFF9E9E9E)
                 )

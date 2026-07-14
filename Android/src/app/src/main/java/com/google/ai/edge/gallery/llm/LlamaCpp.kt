@@ -108,6 +108,20 @@ object LlamaCpp {
         return nativeInitModel(modelPath, nCtx, nGpuLayers, kvCacheType, nBatch)
     }
 
+    /**
+     * Benchmark-only init with tuning knobs. 0 = use default.
+     *   nUbatch          physical batch size
+     *   nThreadsOverride pin to the N fastest cores (big-cores-first)
+     *   flashAttn        0=off, 1=on
+     */
+    fun initModelTuned(
+        modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int, nBatch: Int,
+        nUbatch: Int = 0, nThreadsOverride: Int = 0, flashAttn: Int = 1,
+    ): Long {
+        if (!nativeLoaded) return 0L
+        return nativeInitModelTuned(modelPath, nCtx, nGpuLayers, kvCacheType, nBatch, nUbatch, nThreadsOverride, flashAttn)
+    }
+
     /** Returns the number of inference threads currently bound to perf cores. */
     fun getThreadCount(handle: Long): Int {
         if (!nativeLoaded) return 0
@@ -136,9 +150,24 @@ object LlamaCpp {
         // the warm-cache-replay-stop pathology where a re-run of an
         // identical prompt makes the sampler pick EOG immediately.
         nMinTokens: Int = 5,
+        // 1.0.16: single-model speculative decoding (ngram-map-k4v, ported
+        // from llama.cpp PR-18471). Lossless; measured +9.5% tok/s on the
+        // A17 with MedGemma-4B Q4. Text completions only — never enable for
+        // batched serving (it inverts the gain).
+        specDecode: Boolean = false,
     ): String {
         if (!nativeLoaded) return """{"error":"Native library not loaded"}"""
-        return nativeCompletion(handle, prompt, nPredict, temperature, topK, topP, stopSequences, nMinTokens, callback)
+        return nativeCompletion(handle, prompt, nPredict, temperature, topK, topP, stopSequences, nMinTokens, specDecode, callback)
+    }
+
+    /**
+     * Prefill a prompt (e.g. the constant instruction+few-shot prefix) into the
+     * KV cache without generating — used for background prewarming so the first
+     * assessment skips the cold prefill. Returns tokens resident, or -1 on error.
+     */
+    fun prefill(handle: Long, prompt: String): Int {
+        if (!nativeLoaded) return -1
+        return nativePrefill(handle, prompt)
     }
 
     fun stopCompletion(handle: Long) {
@@ -187,11 +216,13 @@ object LlamaCpp {
     }
 
     private external fun nativeInitModel(modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int, nBatch: Int): Long
+    private external fun nativeInitModelTuned(modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int, nBatch: Int, nUbatch: Int, nThreadsOverride: Int, flashAttn: Int): Long
     private external fun nativeCompletion(
         handle: Long, prompt: String, nPredict: Int,
         temperature: Float, topK: Int, topP: Float,
-        stopSequences: String, nMinTokens: Int, callback: TokenCallback
+        stopSequences: String, nMinTokens: Int, specDecode: Boolean, callback: TokenCallback
     ): String
+    private external fun nativePrefill(handle: Long, prompt: String): Int
     private external fun nativeStopCompletion(handle: Long)
     private external fun nativeClearContext(handle: Long)
     private external fun nativeGetCacheTokenCount(handle: Long): Int

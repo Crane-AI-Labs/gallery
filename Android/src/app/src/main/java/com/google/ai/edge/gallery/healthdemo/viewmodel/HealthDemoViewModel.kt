@@ -13,10 +13,15 @@ import com.google.ai.edge.gallery.healthdemo.data.HealthGuidance
 import com.google.ai.edge.gallery.healthdemo.data.PatientRole
 import com.google.ai.edge.gallery.healthdemo.data.SavedAssessment
 import com.google.ai.edge.gallery.healthdemo.data.Sex
+import com.google.ai.edge.gallery.BuildConfig
 import com.google.ai.edge.gallery.healthdemo.data.ClinicalPrompt
+import com.google.ai.edge.gallery.healthdemo.data.GandaModelDownloader
+import com.google.ai.edge.gallery.healthdemo.data.GandaTranslator
 import com.google.ai.edge.gallery.healthdemo.data.GuidanceValidator
 import com.google.ai.edge.gallery.healthdemo.data.ImagePreprocessor
 import com.google.ai.edge.gallery.healthdemo.data.MedAsrEngine
+import com.google.ai.edge.gallery.healthdemo.data.MmsLugandaAsrEngine
+import com.google.ai.edge.gallery.healthdemo.data.UgandaApiSync
 import com.google.ai.edge.gallery.healthdemo.data.TraditionalMedicine
 import com.google.ai.edge.gallery.healthdemo.data.VitalSigns
 import com.google.ai.edge.gallery.llm.DeviceInfo
@@ -146,6 +151,18 @@ class HealthDemoViewModel @Inject constructor(
     private var visionLoaded: Boolean = false
     private var audioRecord: AudioRecord? = null
     private var recordingJob: kotlinx.coroutines.Job? = null
+
+    // Tier-0 safety substrate: ONE shared single-thread executor that every
+    // MedGemma native op (prewarm, inference, retry) runs on. llama_decode is
+    // not thread-safe on a single context, so this guarantees the background
+    // prewarm and a Generate tap can never drive the context concurrently —
+    // a Generate that lands mid-prewarm simply queues behind it and inherits
+    // the warm prefix. Do NOT launch any modelHandle work off a different
+    // dispatcher.
+    private val medGemmaExecutor = Dispatchers.IO.limitedParallelism(1)
+    // true once the constant instruction+few-shot prefix has been prefilled
+    // into the KV cache (by prewarm or a prior assessment).
+    @Volatile private var prefixWarmed = false
 
     fun setRole(role: PatientRole) {
         val prevCustomRole = _uiState.value.customRole
@@ -300,15 +317,19 @@ class HealthDemoViewModel @Inject constructor(
             Log.d(TAG, "Transcribing ${pcmBytes.size} bytes of audio")
 
             try {
-                MedAsrEngine.setModelPath(
-                    AppSettings.getAsrModelPath(appContext)
-                        ?: ModelAssetManager.getModelPath(appContext, ModelAssetManager.ASR_MODEL)
-                )
-                MedAsrEngine.setTokenizerPath(
-                    AppSettings.getTokenizerPath(appContext)
-                        ?: ModelAssetManager.getModelPath(appContext, ModelAssetManager.ASR_TOKENIZER)
-                )
-                val transcript = MedAsrEngine.transcribe(pcmBytes)
+                val transcript = if (BuildConfig.FLAVOR == "ganda") {
+                    transcribeGanda(pcmBytes)
+                } else {
+                    MedAsrEngine.setModelPath(
+                        AppSettings.getAsrModelPath(appContext)
+                            ?: ModelAssetManager.getModelPath(appContext, ModelAssetManager.ASR_MODEL)
+                    )
+                    MedAsrEngine.setTokenizerPath(
+                        AppSettings.getTokenizerPath(appContext)
+                            ?: ModelAssetManager.getModelPath(appContext, ModelAssetManager.ASR_TOKENIZER)
+                    )
+                    MedAsrEngine.transcribe(pcmBytes)
+                }
                 if (transcript.isNotBlank()) {
                     _uiState.update { state ->
                         val existing = state.symptoms.trim()
@@ -327,6 +348,63 @@ class HealthDemoViewModel @Inject constructor(
                 Log.e(TAG, "Transcription failed", e)
                 _uiState.update { it.copy(isTranscribing = false, inferenceError = "Transcription failed: ${e.message}") }
             }
+        }
+    }
+
+    /**
+     * ganda flavor: Luganda speech → MMS Luganda ASR → Ganda Gemma LUG→EN
+     * draft translation. The English draft goes into the EDITABLE symptoms
+     * field for the health worker to confirm/correct — Ganda Gemma's LUG→EN
+     * is draft quality (it's trained EN→LUG), so a human check is mandatory
+     * before the text feeds MedGemma. Falls back to the raw Luganda
+     * transcript if translation fails, which the worker can rewrite.
+     */
+    private fun transcribeGanda(pcmBytes: ByteArray): String {
+        if (!GandaModelDownloader.modelsReady(appContext)) {
+            // Kick a (resumable) download attempt and tell the worker exactly
+            // which file is missing and why voice isn't available. Don't
+            // blame WiFi unless the phone is actually offline — a 404 from
+            // the model server looks identical to the worker otherwise.
+            viewModelScope.launch(Dispatchers.IO) {
+                try { GandaModelDownloader.ensureModels(appContext) } catch (_: Exception) { /* logged inside */ }
+            }
+            val missing = GandaModelDownloader.missingModels(appContext).joinToString(", ")
+            throw IllegalStateException(
+                when {
+                    GandaModelDownloader.isDownloading ->
+                        "Luganda voice files are still downloading ($missing) — try again in a few minutes."
+                    !UgandaApiSync.isOnline(appContext) ->
+                        "Missing voice files ($missing) — connect to WiFi to download them."
+                    else ->
+                        "The voice file $missing is not available from the server yet. " +
+                            "Typing symptoms in English still works."
+                }
+            )
+        }
+        MmsLugandaAsrEngine.setModelPath(
+            ModelAssetManager.getModelPath(appContext, ModelAssetManager.MMS_ASR_MODEL)
+        )
+        MmsLugandaAsrEngine.setVocabPath(
+            ModelAssetManager.getModelPath(appContext, ModelAssetManager.MMS_ASR_VOCAB)
+        )
+        val luganda = MmsLugandaAsrEngine.transcribe(pcmBytes)
+        if (luganda.isBlank()) return ""
+        Log.d(TAG, "Luganda transcript: ${luganda.length} chars")
+
+        // Free the ~1 GB ASR session before loading the 0.9 GB translator so
+        // both never sit in RAM together on 4 GB-class devices.
+        MmsLugandaAsrEngine.release()
+
+        val english = GandaTranslator.translate(
+            modelPath = ModelAssetManager.getModelPath(appContext, ModelAssetManager.GANDA_LLM),
+            lugandaText = luganda,
+        )
+        return if (english != null) {
+            Log.d(TAG, "LUG→EN draft ready (${english.length} chars)")
+            english
+        } else {
+            Log.w(TAG, "Translation unavailable — inserting raw Luganda transcript")
+            luganda
         }
     }
 
@@ -424,7 +502,10 @@ class HealthDemoViewModel @Inject constructor(
 
         HealthDemoAnalytics.logAssessmentStarted(appContext)
 
-        viewModelScope.launch(Dispatchers.IO.limitedParallelism(1)) {
+        // Route through the shared serialized executor so a Generate that
+        // lands mid-prewarm queues behind it (and inherits the warm prefix)
+        // rather than double-driving the llama context.
+        viewModelScope.launch(medGemmaExecutor) {
             val startMs = System.currentTimeMillis()
             try {
                 // Makerere #4: cap total inference at INFERENCE_TIMEOUT_MS.
@@ -505,6 +586,7 @@ class HealthDemoViewModel @Inject constructor(
 
         if (modelHandle != 0L) {
             LlamaCpp.clearContext(modelHandle)
+            prefixWarmed = false  // clear wiped the cached prefix; retry re-fills it
         }
 
         val secondResult = runMedGemmaInference(state)
@@ -525,38 +607,89 @@ class HealthDemoViewModel @Inject constructor(
         _uiState.update { it.copy(processingStatus = status) }
     }
 
-    private fun runMedGemmaInference(state: HealthDemoUiState): String {
+    /**
+     * Load MedGemma into [modelHandle] if not already resident. Idempotent.
+     * MUST be called on [medGemmaExecutor] (shared by inference + prewarm).
+     * @return true if a handle is available.
+     */
+    private fun ensureModelLoaded(): Boolean {
         if (!LlamaCpp.isAvailable()) {
             throw IllegalStateException("llama.cpp native library not available")
         }
+        if (modelHandle != 0L) return true
 
-        // Load model if not already loaded
+        val modelPath = AppSettings.getLlmModelPath(appContext)
+            ?: ModelAssetManager.getModelPath(appContext, ModelAssetManager.LLM_MODEL)
+        Log.d(TAG, "Device: ${DeviceInfo.summary(appContext)}")
+        Log.d(TAG, "Native variant: ${LlamaCpp.getLoadedVariant()}, perf cores: ${LlamaCpp.getPerfCoreInfo()}")
+        Log.d(TAG, "Loading model from $modelPath")
+
+        val file = java.io.File(modelPath)
+        if (!file.exists()) {
+            throw IllegalStateException("Model file not found at $modelPath. Please select a model in Settings.")
+        }
+
+        // Tune n_batch to device RAM to avoid OOM on budget phones
+        val nBatch = DeviceInfo.recommendedNBatch(appContext)
+        // 1.0.16 perf: f16 KV cache on devices with headroom. f16 avoids
+        // the per-token dequantisation that Q4_0 KV costs during attention
+        // on CPU — measured ~8% faster decode on the A17. It roughly
+        // doubles the KV footprint (~+300-400 MB at n_ctx=2048), so only
+        // enable it above 6 GB total RAM; low-RAM handsets keep Q4_0.
+        //   0 = f16, 2 = Q4_0
+        val kvType = if (DeviceInfo.totalRamMb(appContext) >= 6000) 0 else 2
+        modelHandle = LlamaCpp.initModel(
+            modelPath = modelPath,
+            nCtx = N_CTX,
+            nGpuLayers = N_GPU_LAYERS,
+            kvCacheType = kvType,
+            nBatch = nBatch
+        )
+        prefixWarmed = false
+        if (modelHandle == 0L) {
+            throw IllegalStateException("Failed to load model")
+        }
+        Log.d(TAG, "MedGemma model loaded: handle=$modelHandle, threads=${LlamaCpp.getThreadCount(modelHandle)}, nBatch=$nBatch")
+        return true
+    }
+
+    /**
+     * Background prewarm: load the model and prefill the constant
+     * instruction+few-shot prefix into the KV cache while the health worker is
+     * still entering symptoms, so the FIRST assessment skips the ~cold prefill.
+     * Runs on [medGemmaExecutor], so it can never race an actual assessment.
+     * Idempotent, RAM-gated, and cheap to call repeatedly (e.g. on screen
+     * entry). It does NOT set isProcessing — invisible to the UI.
+     */
+    fun prewarm() {
+        if (prefixWarmed || _uiState.value.isProcessing) return
+        if (BuildConfig.FLAVOR == "ganda") return  // ganda's first model is ASR/translator, not MedGemma
+        viewModelScope.launch(medGemmaExecutor) {
+            try {
+                // Only prewarm on devices that can actually cold-load (same
+                // floor as the inference pre-flight gate).
+                if (modelHandle == 0L && DeviceInfo.availableRamMb(appContext) < 1500) return@launch
+                if (!ensureModelLoaded()) return@launch
+                if (prefixWarmed) return@launch
+                // Prefill the constant prefix with EMPTY patient fields — that
+                // maximises the reusable common prefix for any real patient.
+                val prefixPrompt = ClinicalPrompt.buildTextPrompt(
+                    symptoms = "", age = "", sex = "", vitals = "")
+                val t0 = System.currentTimeMillis()
+                val n = LlamaCpp.prefill(modelHandle, prefixPrompt)
+                prefixWarmed = n > 0
+                Log.d(TAG, "Prewarm: prefilled $n prefix tokens in ${System.currentTimeMillis() - t0}ms (warmed=$prefixWarmed)")
+            } catch (e: Exception) {
+                Log.w(TAG, "Prewarm skipped: ${e.message}")
+            }
+        }
+    }
+
+    private fun runMedGemmaInference(state: HealthDemoUiState): String {
+        // Load model if not already loaded (idempotent; prewarm may have done it)
         if (modelHandle == 0L) {
             setStatus("Loading...")
-            val modelPath = AppSettings.getLlmModelPath(appContext)
-                ?: ModelAssetManager.getModelPath(appContext, ModelAssetManager.LLM_MODEL)
-            Log.d(TAG, "Device: ${DeviceInfo.summary(appContext)}")
-            Log.d(TAG, "Native variant: ${LlamaCpp.getLoadedVariant()}, perf cores: ${LlamaCpp.getPerfCoreInfo()}")
-            Log.d(TAG, "Loading model from $modelPath")
-
-            val file = java.io.File(modelPath)
-            if (!file.exists()) {
-                throw IllegalStateException("Model file not found at $modelPath. Please select a model in Settings.")
-            }
-
-            // Tune n_batch to device RAM to avoid OOM on budget phones
-            val nBatch = DeviceInfo.recommendedNBatch(appContext)
-            modelHandle = LlamaCpp.initModel(
-                modelPath = modelPath,
-                nCtx = N_CTX,
-                nGpuLayers = N_GPU_LAYERS,
-                nBatch = nBatch
-            )
-
-            if (modelHandle == 0L) {
-                throw IllegalStateException("Failed to load model")
-            }
-            Log.d(TAG, "MedGemma model loaded: handle=$modelHandle, threads=${LlamaCpp.getThreadCount(modelHandle)}, nBatch=$nBatch")
+            ensureModelLoaded()
         }
 
         // Collect streamed response
@@ -620,12 +753,15 @@ class HealthDemoViewModel @Inject constructor(
                 LlamaCpp.completion(
                     handle = modelHandle, prompt = prompt, nPredict = 384,
                     temperature = 0.5f, topK = 40, topP = 0.9f,
-                    // Stop on the closing root tag — the model is supposed
-                    // to emit one self-contained <r>…</r> envelope per
-                    // assessment. Cuts ~20-30% off decode time on dotprod-
-                    // only chips by short-circuiting any post-XML preamble
-                    // the model would otherwise generate up to nPredict.
+                    // Stop on the closing root tag — the model emits one
+                    // self-contained <r>…</r> envelope per assessment. Gemma
+                    // usually emits EOG ~1 token after </r>, so the average
+                    // saving is small (~1-2%); the real value is capping a
+                    // runaway that keeps emitting past the tag toward nPredict.
                     stopSequences = "</r>", callback = callback,
+                    // 1.0.16: ngram-map-k4v self-speculation. The XML output
+                    // repeats prompt phrases heavily — ideal for ngram drafts.
+                    specDecode = true,
                 )
             }
         } else {
@@ -637,10 +773,15 @@ class HealthDemoViewModel @Inject constructor(
                 handle = modelHandle, prompt = prompt, nPredict = 384,
                 temperature = 0.5f, topK = 40, topP = 0.9f,
                 stopSequences = "</r>", callback = callback,
+                // 1.0.16: ngram-map-k4v self-speculation (see above).
+                specDecode = true,
             )
         }
 
         val response = responseBuilder.toString().trim()
+        // A completed assessment leaves the constant prefix resident in KV, so
+        // a later prewarm() call is redundant.
+        prefixWarmed = true
         Log.d(TAG, "Inference complete: ${response.length} chars")
         return response
     }
@@ -773,6 +914,12 @@ class HealthDemoViewModel @Inject constructor(
     }
 
     fun resetAssessment() {
+        // NOTE (1.0.16 perf): this intentionally does NOT clear the model KV
+        // cache. The clinical prompt is a constant ~1000-token instruction +
+        // few-shot prefix followed by the patient tail, so keeping the context
+        // resident lets the native KV-reuse path skip re-processing that prefix
+        // on every consecutive assessment (prefix caching — measured ~50% of
+        // the per-assessment cost). Do NOT add clearContext/releaseModel here.
         // Preserve the role selection across assessments. Makerere #3:
         // prefer AppSettings (persisted) over the in-memory value, so a
         // process-death or navigation backstack pop that drops the VM state

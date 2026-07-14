@@ -40,6 +40,11 @@ object MedAsrEngine {
     private var session: OrtSession? = null
     private var vocabulary: List<String> = emptyList()
     private var melFilterbank: Array<FloatArray>? = null
+    // Per-filter [firstNonzeroBin, lastNonzeroBin] (inclusive). Each mel filter
+    // is triangular and nonzero over only ~4-8 FFT bins, so the mel multiply
+    // loops just this range instead of all 257 bins — bit-exact (skips zeros),
+    // ~10-40x fewer multiplies in the mel stage.
+    private var melBinRanges: Array<IntArray>? = null
 
     private var modelPath: String = DEFAULT_MODEL_PATH
     private var tokenizerPath: String = DEFAULT_TOKENIZER_PATH
@@ -127,8 +132,14 @@ object MedAsrEngine {
         // Load vocabulary from tokenizer.json
         loadVocabulary()
 
-        // Precompute mel filterbank
-        melFilterbank = createMelFilterbank(SAMPLE_RATE, N_FFT, N_MELS)
+        // Precompute mel filterbank + each filter's nonzero bin range.
+        val fb = createMelFilterbank(SAMPLE_RATE, N_FFT, N_MELS)
+        melFilterbank = fb
+        melBinRanges = Array(fb.size) { m ->
+            var first = -1; var last = -1
+            for (k in fb[m].indices) if (fb[m][k] != 0f) { if (first < 0) first = k; last = k }
+            if (first < 0) intArrayOf(0, -1) else intArrayOf(first, last)
+        }
         Log.d(TAG, "Mel filterbank ready")
     }
 
@@ -188,6 +199,7 @@ object MedAsrEngine {
         if (nFrames <= 0) return Array(N_MELS) { floatArrayOf() }
 
         val filterbank = melFilterbank!!
+        val binRanges = melBinRanges!!
         val melSpec = Array(N_MELS) { FloatArray(nFrames) }
 
         val fftReal = FloatArray(N_FFT)
@@ -213,11 +225,14 @@ object MedAsrEngine {
                 powerSpec[i] = fftReal[i] * fftReal[i] + fftImag[i] * fftImag[i]
             }
 
-            // Apply mel filterbank
+            // Apply mel filterbank — only over each filter's nonzero bin
+            // range (the rest are structural zeros). Bit-exact.
             for (mel in 0 until N_MELS) {
                 var sum = 0f
-                for (k in powerSpec.indices) {
-                    sum += filterbank[mel][k] * powerSpec[k]
+                val row = filterbank[mel]
+                val r = binRanges[mel]
+                for (k in r[0]..r[1]) {
+                    sum += row[k] * powerSpec[k]
                 }
                 melSpec[mel][frame] = ln(max(sum, 1e-10f))
             }

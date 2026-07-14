@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 import asyncpg
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -50,6 +51,27 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Ease Health Uganda API", version="1.1.0", lifespan=lifespan)
+
+VALIDATION_LOG = "/var/log/easehealth/validation-failures.jsonl"
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    import pathlib, datetime
+    record = {
+        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "path": request.url.path,
+        "errors": exc.errors(),
+        "body": exc.body,
+        "ip": request.client.host if request.client else None,
+    }
+    try:
+        pathlib.Path(VALIDATION_LOG).parent.mkdir(parents=True, exist_ok=True)
+        with open(VALIDATION_LOG, "a") as f:
+            f.write(json.dumps(record, default=str) + "\n")
+    except Exception as e:
+        log.error("validation log write failed: %s", e)
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 @app.exception_handler(Exception)
@@ -144,7 +166,7 @@ async def audit(
 # Literal types pin accepted enums; malformed clients get a clean 422 rather
 # than polluting analytics with typos like "Nursee" or "URGNT".
 PatientRole = Literal["Doctor", "Nurse", "MedicalOfficer", "Midwife", "Other"]
-DurationUnit = Literal["Hours", "Days"]
+DurationUnit = Literal["Hours", "Days", "Weeks", "Months", "Years"]
 TriageLevel = Literal[
     "Emergency referral", "Urgent clinic visit", "Routine care", "Home care",
     "URGENT", "ROUTINE", "EMERGENCY",  # tolerate a few legacy shapes
@@ -237,7 +259,7 @@ class AssessmentPayload(BaseModel):
     # Wall-clock generation latency in ms. Bounded by the client-side
     # INFERENCE_TIMEOUT_MS (60s); allow up to 5 min in case we relax
     # that later. None for legacy clients (pre-1.0.4).
-    inference_ms: int | None = Field(default=None, ge=0, le=300_000)
+    inference_ms: int | None = Field(default=None, ge=0)
 
 
 class PausedPayload(BaseModel):

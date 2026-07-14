@@ -42,8 +42,8 @@ android {
     applicationId = "com.craneailabs.easehealth"
     minSdk = 31
     targetSdk = 35
-    versionCode = 115
-    versionName = "1.0.15"
+    versionCode = 117
+    versionName = "1.0.17"
 
     // Sentry / GlitchTip DSN — points at our self-hosted GlitchTip on the
     // Uganda VM (DPPA §19 data sovereignty). The /_e/ subpath is the nginx
@@ -83,6 +83,28 @@ android {
       signingConfig = signingConfigs.getByName("debug")
     }
   }
+
+  // Pipeline flavors:
+  //  - standard: production English pipeline (MedASR English medical ASR).
+  //    ASR assets live in src/standard/assets.
+  //  - ganda: Luganda voice pipeline variant. MMS Luganda ASR (wav2vec2 CTC,
+  //    CraneAILabs/mms-1b-lug-asr-waxalnlp) + Ganda Gemma 1B Q4_K_M for
+  //    on-device LUG→EN draft translation feeding MedGemma. Assets live in
+  //    src/ganda/assets. Separate applicationId so both can coexist on a
+  //    test device and server metrics stay distinguishable via app_version.
+  flavorDimensions += "pipeline"
+  productFlavors {
+    create("standard") {
+      dimension = "pipeline"
+      isDefault = true
+    }
+    create("ganda") {
+      dimension = "pipeline"
+      applicationIdSuffix = ".ganda"
+      versionNameSuffix = "-ganda"
+    }
+  }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11

@@ -2,6 +2,7 @@ package com.google.ai.edge.gallery.data
 
 import android.content.Context
 import android.util.Log
+import com.google.ai.edge.gallery.BuildConfig
 import java.io.File
 import java.io.FileOutputStream
 
@@ -27,6 +28,29 @@ object ModelAssetManager {
     const val ASR_MODEL = "medasr-fp32.onnx"
     const val ASR_TOKENIZER = "medasr-tokenizer.json"
 
+    // ganda flavor: MMS Luganda ASR (wav2vec2 CTC) + Ganda Gemma 1B LUG→EN
+    // draft translator. Only the tiny vocab ships in the APK — the two big
+    // models would push the archive past the Zip32 4 GiB limit, so
+    // GandaModelDownloader fetches them into the same models/ dir on first run.
+    const val MMS_ASR_MODEL = "mms-lug-asr.onnx"
+    const val MMS_ASR_VOCAB = "mms-lug-vocab.json"
+    const val GANDA_LLM = "ganda-gemma-1b-Q4_K_M.gguf"
+
+    /** Bundled asset set differs per flavor — medasr on standard, MMS vocab on ganda. */
+    private val expectedModels: List<String> =
+        if (BuildConfig.FLAVOR == "ganda")
+            listOf(LLM_MODEL, VISION_MODEL, MMS_ASR_VOCAB)
+        else
+            listOf(LLM_MODEL, VISION_MODEL, ASR_MODEL, ASR_TOKENIZER)
+
+    /**
+     * Files that live in models/ but arrive via GandaModelDownloader, not APK
+     * extraction. The stale-file sweep must never delete these (or their .tmp
+     * resume files) — they cost the clinic 1.75 GB of WiFi to re-fetch.
+     */
+    private val downloadedModels: Set<String> =
+        if (BuildConfig.FLAVOR == "ganda") setOf(MMS_ASR_MODEL, GANDA_LLM) else emptySet()
+
     /**
      * Each entry: output filename -> list of asset chunk names.
      * Single-file assets have one chunk matching the filename.
@@ -37,7 +61,7 @@ object ModelAssetManager {
     private fun discoverAssets(context: Context): List<AssetEntry> {
         val allAssets = context.assets.list("")?.toSet() ?: emptySet()
 
-        return listOf(LLM_MODEL, VISION_MODEL, ASR_MODEL, ASR_TOKENIZER).map { name ->
+        return expectedModels.map { name ->
             // Check for split chunks: <name>.partaa, .partab, etc.
             val chunks = allAssets.filter { it.startsWith("$name.part") }.sorted()
             if (chunks.isNotEmpty()) {
@@ -63,8 +87,7 @@ object ModelAssetManager {
         val prefs = context.getSharedPreferences("model_assets", Context.MODE_PRIVATE)
         if (prefs.getInt(VERSION_KEY, 0) != CURRENT_VERSION) return false
         val dir = modelsDir(context)
-        return listOf(LLM_MODEL, VISION_MODEL, ASR_MODEL, ASR_TOKENIZER)
-            .all { File(dir, it).exists() }
+        return expectedModels.all { File(dir, it).exists() }
     }
 
     /**
@@ -82,7 +105,8 @@ object ModelAssetManager {
         // medgemma-v5b-Q4_0.gguf from v1.0.2). Anything in models/ that isn't
         // in the current expected set is removed before we start extracting,
         // so the device doesn't end up carrying two full LLM copies.
-        val expected = setOf(LLM_MODEL, VISION_MODEL, ASR_MODEL, ASR_TOKENIZER)
+        val expected = expectedModels.toSet() + downloadedModels +
+            downloadedModels.map { "$it.tmp" }
         dir.listFiles()?.forEach { f ->
             if (f.isFile && f.name !in expected) {
                 val size = f.length()

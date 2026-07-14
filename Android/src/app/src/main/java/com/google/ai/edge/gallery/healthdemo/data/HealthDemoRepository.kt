@@ -160,16 +160,55 @@ class HealthDemoRepository(private val context: Context) {
 
         var assessmentsOk = 0
         for (entity in pendingAssessments) {
-            if (UgandaApiSync.syncAssessment(context, entity.toDomain())) {
-                assessmentDao.markSynced(entity.id, System.currentTimeMillis())
-                assessmentsOk++
+            try {
+                if (UgandaApiSync.syncAssessment(context, entity.toDomain())) {
+                    assessmentDao.markSynced(entity.id, System.currentTimeMillis())
+                    assessmentsOk++
+                }
+            } catch (e: Exception) {
+                // Null enum field from Room TypeConverter deserialization. Heal the
+                // entity in-place with safe defaults so the clinical data still
+                // reaches the server and the row doesn't stay stuck forever.
+                Log.w(TAG, "Assessment ${entity.id} has null enum — self-healing", e)
+                try {
+                    val healed = entity.copy(
+                        role = entity.role ?: PatientRole.Other,
+                        durationUnit = entity.durationUnit ?: DurationUnit.Days,
+                    )
+                    assessmentDao.update(healed)
+                    if (UgandaApiSync.syncAssessment(context, healed.toDomain())) {
+                        assessmentDao.markSynced(entity.id, System.currentTimeMillis())
+                        assessmentsOk++
+                        Log.d(TAG, "Self-healed and synced assessment ${entity.id}")
+                    }
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Self-heal failed for assessment ${entity.id}", e2)
+                }
             }
         }
         var pausedOk = 0
         for (entity in pendingPaused) {
-            if (UgandaApiSync.syncPaused(context, entity.toDomain())) {
-                pausedDao.markSynced(entity.id, System.currentTimeMillis())
-                pausedOk++
+            try {
+                if (UgandaApiSync.syncPaused(context, entity.toDomain())) {
+                    pausedDao.markSynced(entity.id, System.currentTimeMillis())
+                    pausedOk++
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Paused ${entity.id} has null enum — self-healing", e)
+                try {
+                    val healed = entity.copy(
+                        role = entity.role ?: PatientRole.Other,
+                        durationUnit = entity.durationUnit ?: DurationUnit.Days,
+                    )
+                    pausedDao.insert(healed) // OnConflictStrategy.REPLACE acts as upsert
+                    if (UgandaApiSync.syncPaused(context, healed.toDomain())) {
+                        pausedDao.markSynced(entity.id, System.currentTimeMillis())
+                        pausedOk++
+                        Log.d(TAG, "Self-healed and synced paused ${entity.id}")
+                    }
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Self-heal failed for paused ${entity.id}", e2)
+                }
             }
         }
 

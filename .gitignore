@@ -27,6 +27,31 @@ APK-README.md
 FORMAT_TEST_PLAN.md
 INFERENCE_PERFORMANCE_LOG.md
 
+# ── Internal working docs (keep locally, not for upstream) ────────────────
+# Bug reports, perf/benchmark investigations, device metrics, handoffs and
+# internal strategy notes. Useful to us; noise to anyone who finds the repo.
+Bug_Reporting_Guide.md
+Health_Demo_Project_Summary.md
+DEVELOPMENT_REPORT.md
+DEVICE_BENCHMARK_REPORT.md
+ONDEVICE_METRICS_REPORT.md
+GENERATION_SPEEDUP_INVESTIGATION.md
+SPEC_DECODE_BENCHMARK.md
+PERF_ROADMAP.md
+LUGANDA_TRANSLATION_BUG.md
+WEATHERNEXT_HANDOFF.md
+benchmark-artifacts-*/
+# Bug reports / exported office docs are internal by default here
+*.pdf
+*.docx
+*.doc
+
+# ── On-device model weights (never committed; shipped/downloaded separately)
+*.onnx
+*.gguf
+*.task
+*.part[a-z][a-z]
+
 # ── Build outputs ─────────────────────────────────────────────────────────
 Android/src/app/build/
 Android/src/build/

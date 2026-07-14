@@ -21,6 +21,7 @@ import android.os.Build
 import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.data.ModelAssetManager
+import com.google.ai.edge.gallery.healthdemo.data.GandaModelDownloader
 import com.google.ai.edge.gallery.healthdemo.data.UgandaApi
 import com.google.ai.edge.gallery.healthdemo.data.UgandaApiSync
 import com.google.ai.edge.gallery.ui.theme.ThemeSettings
@@ -84,6 +85,23 @@ class GalleryApplication : Application() {
         }
       } catch (e: Exception) {
         Log.w(TAG, "Uganda API enroll failed: ${e.message}")
+      }
+    }
+
+    // ganda flavor: the two Luganda models (MMS ASR + Ganda Gemma) don't fit
+    // in the APK (Zip32 4 GiB limit) — fetch them in the background on first
+    // run. Idempotent + resumable; no-ops once both are verified on disk.
+    if (BuildConfig.FLAVOR == "ganda") {
+      CoroutineScope(Dispatchers.IO).launch {
+        try {
+          if (UgandaApiSync.isOnline(this@GalleryApplication)) {
+            GandaModelDownloader.ensureModels(this@GalleryApplication)
+          } else {
+            Log.d(TAG, "Offline — deferring Luganda model download")
+          }
+        } catch (e: Exception) {
+          Log.w(TAG, "Luganda model download failed: ${e.message}")
+        }
       }
     }
 

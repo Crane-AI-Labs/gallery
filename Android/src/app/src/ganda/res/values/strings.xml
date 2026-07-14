@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ganda flavor overrides: the Luganda-pipeline offshoot installs alongside the
+  production Ease Health app, so it needs its own launcher name. "Local" =
+  local-language (Luganda voice input) variant.
+-->
+<resources>
+  <string name="app_name" translatable="false">Ease Health Local</string>
+  <string name="app_name_first_part" translatable="false">Ease</string>
+  <string name="app_name_second_part" translatable="false">Health Local</string>
+</resources>
