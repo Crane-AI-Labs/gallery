@@ -5,7 +5,9 @@
 #include <fstream>
 #include <sstream>
 #include <limits>
+#include <ctime>
 #include <android/log.h>
+#include <sys/system_properties.h>
 
 #include "llama.h"
 #include "mtmd.h"
@@ -14,6 +16,37 @@
 #define TAG "LlamaJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+// Route llama.cpp + ggml/clip internal logs (incl. mtmd print_timings and clip's
+// "flash attention is enabled/disabled" line) to logcat so we can actually see
+// the vision-encode breakdown. Without this, LOG_INF/LOG_WRN from clip.cpp go
+// nowhere on Android.
+static void gallery_log_cb(enum lm_ggml_log_level level, const char * text, void * /*ud*/) {
+    if (!text) return;
+    int prio = ANDROID_LOG_INFO;
+    if (level == LM_GGML_LOG_LEVEL_ERROR) prio = ANDROID_LOG_ERROR;
+    else if (level == LM_GGML_LOG_LEVEL_WARN) prio = ANDROID_LOG_WARN;
+    __android_log_write(prio, "LlamaCppLog", text);
+}
+
+static void install_log_routing_once() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    // Route ONLY the mtmd/clip logger to logcat — the vision diagnostics we want
+    // in the field (flash-attn status, reduced-resolution confirmation, mtmd
+    // print_timings, encode errors) at low volume. We deliberately do NOT route
+    // llama_log_set / lm_ggml_log_set: those dump ~1000 lines of model-loader /
+    // ggml metadata on every launch, which is noise in a production build.
+    mtmd_log_set(gallery_log_cb, nullptr);
+}
+
+// Monotonic milliseconds for on-device stage timing.
+static double now_ms() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1.0e6;
+}
 
 // ─── Single-model speculative decoding: ngram-map-k4v ───────────────────────
 // Port of llama.cpp common/ngram-map.{h,cpp} (ref: ggml-org/llama.cpp PR-18471)
@@ -288,7 +321,24 @@ struct inference_context {
     int n_threads;            // number of threads bound to perf cores
     std::vector<int> perf_core_ids;  // CPU IDs of performance cores (for affinity)
     spec_ngram_map * spec_map = nullptr;  // ngram-map-k4v state (lazy, text completion only)
+
+    // Eager vision-encode overlap: the ~184s SigLIP encode depends only on the
+    // photo, so it runs in the background at image-attach time. We stash the
+    // resident [constant-prefix + image] KV here so Generate only has to prefill
+    // the patient-text tail. Bit-identical to a full eval (Gemma3 is non-mrope).
+    uint64_t vision_prefix_hash = 0;   // FNV-1a of the constant prefix string
+    uint64_t vision_image_hash  = 0;   // FNV-1a of the raw image bytes
+    int      vision_prefix_n_past = 0; // KV length after [prefix + image]
+    bool     vision_prefix_ready = false;
 };
+
+// FNV-1a over bytes — cheap identity check for the cached vision prefix/image.
+static uint64_t fnv1a(const void * data, size_t len) {
+    const unsigned char * p = (const unsigned char *) data;
+    uint64_t h = 1469598103934665603ULL;
+    for (size_t i = 0; i < len; i++) { h ^= p[i]; h *= 1099511628211ULL; }
+    return h;
+}
 
 // ─── CPU Topology Detection ──────────────────────────────────────────────────
 // Read each CPU's max frequency from /sys/devices/system/cpu/cpu*/cpufreq/cpuinfo_max_freq
@@ -416,6 +466,7 @@ static jlong init_model_full(const char *path, int nCtx, int nGpuLayers,
     LOGI("initModel: %s, nCtx=%d, nGpuLayers=%d, kvCacheType=%d, nBatch=%d, nUbatch=%d, nThreadsOverride=%d, flash=%d",
          path, nCtx, nGpuLayers, kvCacheType, nBatch, nUbatch, nThreadsOverride, flashAttn);
 
+    install_log_routing_once();
     llama_backend_init();
 
     // ─── Thread / affinity selection ─────────────────────────────────────────
@@ -541,6 +592,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativePrefill(
 ) {
     auto * inf_ctx = reinterpret_cast<inference_context *>(handle);
     if (!inf_ctx || !inf_ctx->ctx) return -1;
+    inf_ctx->vision_prefix_ready = false;  // text prefill clobbers any resident vision prefix
 
     const char *prompt_cstr = env->GetStringUTFChars(prompt, nullptr);
     std::string prompt_str(prompt_cstr ? prompt_cstr : "");
@@ -606,6 +658,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
     if (!inf_ctx || !inf_ctx->ctx) {
         return env->NewStringUTF("{\"error\":\"Invalid context\"}");
     }
+    inf_ctx->vision_prefix_ready = false;  // text completion clobbers any resident vision prefix
 
     inf_ctx->stop_requested = false;
 
@@ -929,6 +982,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeClearContext(
         llama_memory_clear(llama_get_memory(inf_ctx->ctx), true);
         inf_ctx->cache_tokens.clear();
         inf_ctx->n_past = 0;
+        inf_ctx->vision_prefix_ready = false;
         LOGI("KV cache cleared (new conversation)");
     }
 }
@@ -1003,7 +1057,8 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitVision(
     JNIEnv *env,
     jobject /* this */,
     jlong handle,
-    jstring mmprojPath
+    jstring mmprojPath,
+    jint imageSize
 ) {
     auto * inf_ctx = reinterpret_cast<inference_context *>(handle);
     if (!inf_ctx || !inf_ctx->model) {
@@ -1025,6 +1080,36 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitVision(
     // Use the same thread count as the LLM (already bound to perf cores)
     params.n_threads = inf_ctx->n_threads > 0 ? inf_ctx->n_threads : 4;
 
+    // EXPERIMENT (vision-encode perf): the SigLIP encode barriers after nearly
+    // every op, so heterogeneous unpinned threads sync to the slowest little
+    // core. Allow overriding the clip encode thread count at runtime to find the
+    // sweet spot without a rebuild:  adb shell setprop debug.eh.clipthreads N
+    // (0/unset = default above). Once the best N is known this becomes a constant.
+    char prop[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("debug.eh.clipthreads", prop) > 0) {
+        int t = atoi(prop);
+        if (t > 0 && t <= 16) {
+            params.n_threads = t;
+            LOGI("initVision: clip n_threads overridden to %d via debug.eh.clipthreads", t);
+        }
+    }
+    LOGI("initVision: clip encode using %d threads", params.n_threads);
+
+    // Optional reduced-resolution vision (opt-in "Fast image mode" setting).
+    // imageSize > 0 shrinks the SigLIP square input (e.g. 448) to cut the encode
+    // ~quadratically, trading fine detail for speed. A debug property overrides
+    // it for on-device tuning without a rebuild: adb shell setprop debug.eh.visionsize N
+    int vsize = imageSize;
+    char vprop[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("debug.eh.visionsize", vprop) > 0) {
+        int v = atoi(vprop);
+        if (v > 0) vsize = v;
+    }
+    if (vsize > 0) {
+        params.vision_image_size = vsize;
+        LOGI("initVision: reduced-resolution vision requested (image_size=%d)", vsize);
+    }
+
     inf_ctx->mtmd_ctx = mtmd_init_from_file(path, inf_ctx->model, params);
     env->ReleaseStringUTFChars(mmprojPath, path);
 
@@ -1035,6 +1120,75 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeInitVision(
 
     LOGI("Vision encoder loaded successfully");
     return JNI_TRUE;
+}
+
+// Eager vision encode (background overlap). Runs the ~184s SigLIP image encode +
+// prefill of the CONSTANT prompt prefix [instructions + few-shot + "Clinical
+// image:" + <__media__>] and leaves the resulting KV resident. A subsequent
+// nativeCompletionWithImage with the same image + prefix then only prefills the
+// patient-text tail (skipping the encode). Call this the moment the photo is
+// attached, while the health worker is still entering symptoms. Returns the KV
+// length after [prefix + image], or -1 on error.
+JNIEXPORT jint JNICALL
+Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeEncodeImagePrefix(
+    JNIEnv *env, jobject, jlong handle, jstring prefixPrompt, jbyteArray imageData
+) {
+    auto * inf_ctx = reinterpret_cast<inference_context *>(handle);
+    if (!inf_ctx || !inf_ctx->ctx || !inf_ctx->mtmd_ctx) return -1;
+
+    const char *prefix_cstr = env->GetStringUTFChars(prefixPrompt, nullptr);
+    std::string prefix_std(prefix_cstr ? prefix_cstr : "");
+    if (prefix_cstr) env->ReleaseStringUTFChars(prefixPrompt, prefix_cstr);
+
+    jsize imgLen = env->GetArrayLength(imageData);
+    jbyte *imgBytes = env->GetByteArrayElements(imageData, nullptr);
+    uint64_t img_hash = fnv1a(imgBytes, (size_t) imgLen);
+
+    mtmd_bitmap * bitmap = mtmd_helper_bitmap_init_from_buf(
+        inf_ctx->mtmd_ctx, reinterpret_cast<const unsigned char *>(imgBytes), imgLen);
+    env->ReleaseByteArrayElements(imageData, imgBytes, JNI_ABORT);
+    if (!bitmap) { LOGE("encodeImagePrefix: failed to decode image"); return -1; }
+
+    mtmd_input_text input_text;
+    input_text.text = prefix_std.c_str();
+    input_text.add_special = true;
+    input_text.parse_special = true;
+    const mtmd_bitmap * bitmaps[] = { bitmap };
+    mtmd_input_chunks * chunks = mtmd_input_chunks_init();
+
+    int32_t ret = mtmd_tokenize(inf_ctx->mtmd_ctx, chunks, &input_text, bitmaps, 1);
+    mtmd_bitmap_free(bitmap);
+    if (ret != 0) {
+        LOGE("encodeImagePrefix: tokenize failed (error %d)", ret);
+        mtmd_input_chunks_free(chunks);
+        return -1;
+    }
+
+    // Fresh cache — the multimodal batch must start at position 0.
+    llama_memory_clear(llama_get_memory(inf_ctx->ctx), true);
+    inf_ctx->cache_tokens.clear();
+    inf_ctx->n_past = 0;
+    inf_ctx->vision_prefix_ready = false;
+
+    double t0 = now_ms();
+    llama_pos n_past = 0;
+    ret = mtmd_helper_eval_chunks(
+        inf_ctx->mtmd_ctx, inf_ctx->ctx, chunks, 0, 0, 512, true, &n_past);
+    mtmd_input_chunks_free(chunks);
+    if (ret != 0) {
+        LOGE("encodeImagePrefix: eval failed (error %d)", ret);
+        return -1;
+    }
+
+    inf_ctx->n_past = n_past;
+    inf_ctx->cache_tokens.clear();  // vision breaks text prefix-matching
+    inf_ctx->vision_prefix_hash = fnv1a(prefix_std.data(), prefix_std.size());
+    inf_ctx->vision_image_hash = img_hash;
+    inf_ctx->vision_prefix_n_past = n_past;
+    inf_ctx->vision_prefix_ready = true;
+    LOGI("encodeImagePrefix: [prefix+image] resident, n_past=%d, encode+prefill=%.0f ms (this runs in the background)",
+         n_past, now_ms() - t0);
+    return n_past;
 }
 
 JNIEXPORT jstring JNICALL
@@ -1068,58 +1222,114 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletionWithImage(
     std::string prompt_str(prompt_cstr);
     env->ReleaseStringUTFChars(prompt, prompt_cstr);
 
-    // Get image bytes
+    // Get image bytes (held until we commit to a path)
     jsize imgLen = env->GetArrayLength(imageData);
     jbyte *imgBytes = env->GetByteArrayElements(imageData, nullptr);
 
     LOGI("completionWithImage: prompt=%zu chars, image=%d bytes", prompt_str.size(), imgLen);
 
-    // Create bitmap from image data (supports jpg, png, etc via stb_image)
-    mtmd_bitmap * bitmap = mtmd_helper_bitmap_init_from_buf(
-        inf_ctx->mtmd_ctx,
-        reinterpret_cast<const unsigned char *>(imgBytes),
-        imgLen
-    );
-    env->ReleaseByteArrayElements(imageData, imgBytes, JNI_ABORT);
+    // ── Eager-encode overlap fast path ───────────────────────────────────────
+    // If the background prewarmImage() already encoded [constant prefix + this
+    // image] and it is still resident in the KV cache, skip the ~184s SigLIP
+    // encode entirely and only prefill the patient-text tail. The split is
+    // bit-identical to a full eval: Gemma3 is non-mrope (sequential positions)
+    // and mtmd already evaluated the image block non-causally during the eager
+    // step, so the tail attends causally to the same resident KV.
+    const std::string MEDIA_MARKER = "<__media__>";
+    uint64_t img_hash = fnv1a(imgBytes, (size_t) imgLen);
+    size_t marker_pos = prompt_str.find(MEDIA_MARKER);
+    std::string prefix_str = (marker_pos == std::string::npos)
+        ? prompt_str : prompt_str.substr(0, marker_pos + MEDIA_MARKER.size());
+    std::string tail_str = (marker_pos == std::string::npos)
+        ? std::string() : prompt_str.substr(marker_pos + MEDIA_MARKER.size());
+    uint64_t prefix_hash = fnv1a(prefix_str.data(), prefix_str.size());
 
-    if (!bitmap) {
-        LOGE("Failed to decode image");
-        return env->NewStringUTF("{\"error\":\"Failed to decode image\"}");
-    }
-
-    // Tokenize prompt with image marker
-    // The prompt should contain <__media__> where the image should be inserted
-    mtmd_input_text input_text;
-    input_text.text = prompt_str.c_str();
-    input_text.add_special = true;
-    input_text.parse_special = true;
-
-    const mtmd_bitmap * bitmaps[] = { bitmap };
-    mtmd_input_chunks * chunks = mtmd_input_chunks_init();
-
-    int32_t ret = mtmd_tokenize(inf_ctx->mtmd_ctx, chunks, &input_text, bitmaps, 1);
-    mtmd_bitmap_free(bitmap);
-
-    if (ret != 0) {
-        LOGE("Failed to tokenize multimodal input (error %d)", ret);
-        mtmd_input_chunks_free(chunks);
-        return env->NewStringUTF("{\"error\":\"Failed to tokenize multimodal input\"}");
-    }
-
-    // Evaluate all chunks (text + image)
     llama_pos n_past = 0;
-    ret = mtmd_helper_eval_chunks(
-        inf_ctx->mtmd_ctx, inf_ctx->ctx, chunks,
-        n_past, 0, 512, true, &n_past
-    );
-    mtmd_input_chunks_free(chunks);
+    bool fast_path = inf_ctx->vision_prefix_ready
+        && marker_pos != std::string::npos
+        && inf_ctx->vision_image_hash == img_hash
+        && inf_ctx->vision_prefix_hash == prefix_hash;
+    // Single-use: appending the tail below replaces the "just [prefix+image]"
+    // KV state, so any later call must re-encode.
+    inf_ctx->vision_prefix_ready = false;
 
-    if (ret != 0) {
-        LOGE("Failed to evaluate multimodal input (error %d)", ret);
-        return env->NewStringUTF("{\"error\":\"Failed to evaluate multimodal input\"}");
+    if (fast_path) {
+        env->ReleaseByteArrayElements(imageData, imgBytes, JNI_ABORT);
+        n_past = inf_ctx->vision_prefix_n_past;
+        // Tokenize the patient tail as a continuation (no BOS). mtmd splits text
+        // chunks on the marker, so this matches how the full path tokenizes the
+        // post-image text.
+        const llama_vocab * vocab = llama_model_get_vocab(inf_ctx->model);
+        std::vector<llama_token> tail(tail_str.size() + 16);
+        int nt = llama_tokenize(vocab, tail_str.c_str(), tail_str.size(),
+                                tail.data(), tail.size(), false, true);
+        if (nt < 0) { tail.resize(-nt); nt = llama_tokenize(vocab, tail_str.c_str(),
+                        tail_str.size(), tail.data(), tail.size(), false, true); }
+        tail.resize(nt > 0 ? nt : 0);
+
+        double t_tail0 = now_ms();
+        bool ok = true;
+        const int nb = llama_n_batch(inf_ctx->ctx);
+        for (int i = 0; i < (int) tail.size(); i += nb) {
+            int n_eval = std::min(nb, (int) tail.size() - i);
+            llama_batch b = llama_batch_get_one(tail.data() + i, n_eval);
+            if (llama_decode(inf_ctx->ctx, b) != 0) { ok = false; break; }
+        }
+        if (!ok) {
+            LOGE("overlap fast-path tail decode failed; resident KV is now inconsistent");
+            return env->NewStringUTF("{\"error\":\"overlap tail decode failed\"}");
+        }
+        n_past += (int) tail.size();
+        inf_ctx->n_past = n_past;
+        LOGI("completionWithImage OVERLAP: reused %d resident [prefix+image] tokens + %d tail; SigLIP encode SKIPPED (tail-prefill=%.0f ms)",
+             inf_ctx->vision_prefix_n_past, (int) tail.size(), now_ms() - t_tail0);
+    } else {
+        // ── FULL PATH: encode the image + prefill the whole prompt (~184s) ──
+        mtmd_bitmap * bitmap = mtmd_helper_bitmap_init_from_buf(
+            inf_ctx->mtmd_ctx,
+            reinterpret_cast<const unsigned char *>(imgBytes), imgLen);
+        env->ReleaseByteArrayElements(imageData, imgBytes, JNI_ABORT);
+        if (!bitmap) {
+            LOGE("Failed to decode image");
+            return env->NewStringUTF("{\"error\":\"Failed to decode image\"}");
+        }
+
+        mtmd_input_text input_text;
+        input_text.text = prompt_str.c_str();
+        input_text.add_special = true;
+        input_text.parse_special = true;
+        const mtmd_bitmap * bitmaps[] = { bitmap };
+        mtmd_input_chunks * chunks = mtmd_input_chunks_init();
+
+        double t_tok0 = now_ms();
+        int32_t ret = mtmd_tokenize(inf_ctx->mtmd_ctx, chunks, &input_text, bitmaps, 1);
+        mtmd_bitmap_free(bitmap);
+        if (ret != 0) {
+            LOGE("Failed to tokenize multimodal input (error %d)", ret);
+            mtmd_input_chunks_free(chunks);
+            return env->NewStringUTF("{\"error\":\"Failed to tokenize multimodal input\"}");
+        }
+        LOGI("VISION-TIMING tokenize=%.0f ms", now_ms() - t_tok0);
+
+        // Clear any resident KV (prewarm / prior assessment) so the multimodal
+        // batch evaluates cleanly from position 0 (otherwise error -1).
+        llama_memory_clear(llama_get_memory(inf_ctx->ctx), true);
+        inf_ctx->cache_tokens.clear();
+        inf_ctx->n_past = 0;
+
+        double t_eval0 = now_ms();
+        ret = mtmd_helper_eval_chunks(
+            inf_ctx->mtmd_ctx, inf_ctx->ctx, chunks, 0, 0, 512, true, &n_past);
+        mtmd_input_chunks_free(chunks);
+        if (ret != 0) {
+            LOGE("Failed to evaluate multimodal input (error %d)", ret);
+            return env->NewStringUTF("{\"error\":\"Failed to evaluate multimodal input\"}");
+        }
+        LOGI("VISION-TIMING eval(encode+prefill)=%.0f ms, n_past=%d", now_ms() - t_eval0, n_past);
     }
 
     LOGI("Multimodal prompt evaluated, n_past=%d", n_past);
+    double t_dec0 = now_ms();
 
     // Get callback method
     jclass callbackClass = env->GetObjectClass(callback);
@@ -1154,6 +1364,12 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletionWithImage(
             LOGE("Failed to decode token %d", i);
             break;
         }
+    }
+
+    {
+        double dec = now_ms() - t_dec0;
+        LOGI("VISION-TIMING decode=%.0f ms, %d tokens (%.2f tok/s)",
+             dec, n_generated, n_generated > 0 ? n_generated * 1000.0 / dec : 0.0);
     }
 
     // Build result JSON

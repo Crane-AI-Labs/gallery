@@ -256,7 +256,12 @@ class HealthDemoViewModel @Inject constructor(
 
     fun setCapturedImage(imageBytes: ByteArray?) {
         _uiState.update { it.copy(capturedImageBytes = imageBytes) }
-        if (imageBytes != null) HealthDemoAnalytics.logImageCaptured()
+        if (imageBytes != null) {
+            HealthDemoAnalytics.logImageCaptured()
+            // Kick off the ~184s SigLIP encode in the background NOW, while the
+            // worker keeps filling the form, so Generate only prefills the tail.
+            prewarmImage(imageBytes)
+        }
     }
 
     private var recordedBytes = java.io.ByteArrayOutputStream()
@@ -664,6 +669,9 @@ class HealthDemoViewModel @Inject constructor(
     fun prewarm() {
         if (prefixWarmed || _uiState.value.isProcessing) return
         if (BuildConfig.FLAVOR == "ganda") return  // ganda's first model is ASR/translator, not MedGemma
+        // If a photo is attached we want the VISION prefix resident, not the
+        // text prefix — prewarmImage() owns the KV in that case.
+        if (_uiState.value.capturedImageBytes != null) return
         viewModelScope.launch(medGemmaExecutor) {
             try {
                 // Only prewarm on devices that can actually cold-load (same
@@ -681,6 +689,71 @@ class HealthDemoViewModel @Inject constructor(
                 Log.d(TAG, "Prewarm: prefilled $n prefix tokens in ${System.currentTimeMillis() - t0}ms (warmed=$prefixWarmed)")
             } catch (e: Exception) {
                 Log.w(TAG, "Prewarm skipped: ${e.message}")
+            }
+        }
+    }
+
+    private var loadedVisionSize: Int = -1
+
+    /**
+     * Longest-edge cap for the preprocessed image. In fast-image mode we cap at
+     * the reduced ViT size so the encoder sees a single tile (no pan-and-scan);
+     * otherwise the default 768 (upscaled to the model's native 896).
+     */
+    private fun visionInputMaxDim(): Int =
+        if (AppSettings.isFastImageMode(appContext)) AppSettings.FAST_IMAGE_SIZE else 768
+
+    /**
+     * Idempotently load the vision encoder (mmproj) at the resolution implied by
+     * the "fast image mode" setting. Re-inits (and clears any stale resident
+     * prefix) if the setting changed since the last load. MUST run on
+     * [medGemmaExecutor].
+     */
+    private fun ensureVisionLoaded(): Boolean {
+        val wantSize = AppSettings.visionImageSize(appContext)
+        if (visionLoaded && loadedVisionSize == wantSize) return true
+        val mmprojPath = ModelAssetManager.getModelPath(appContext, ModelAssetManager.VISION_MODEL)
+        if (!java.io.File(mmprojPath).exists()) {
+            Log.w(TAG, "mmproj not found at $mmprojPath")
+            return false
+        }
+        // Resolution change → the resident [prefix+image] KV is at the old size.
+        if (visionLoaded && loadedVisionSize != wantSize) LlamaCpp.clearContext(modelHandle)
+        visionLoaded = LlamaCpp.initVision(modelHandle, mmprojPath, wantSize)
+        if (visionLoaded) loadedVisionSize = wantSize
+        Log.d(TAG, "Vision encoder loaded: $visionLoaded (imageSize=$wantSize)")
+        return visionLoaded
+    }
+
+    /**
+     * Background eager image-encode (vision overlap). The ~184s SigLIP forward
+     * depends only on the photo, so we run it the moment the image is attached —
+     * concurrently with the worker's remaining data entry — and leave the
+     * [constant prefix + image] KV resident. The subsequent Generate then only
+     * prefills the patient-text tail (native fast path in nativeCompletionWithImage),
+     * so the first vision assessment feels ~as fast as text. Bit-identical output.
+     * Runs on [medGemmaExecutor] so it can never race an assessment.
+     */
+    fun prewarmImage(imageBytes: ByteArray) {
+        if (_uiState.value.isProcessing) return
+        if (BuildConfig.FLAVOR == "ganda") return
+        viewModelScope.launch(medGemmaExecutor) {
+            try {
+                if (modelHandle == 0L && DeviceInfo.availableRamMb(appContext) < 1500) return@launch
+                if (!ensureModelLoaded()) return@launch
+                if (!ensureVisionLoaded()) return@launch
+                // Preprocess to the exact bytes the real inference will feed, so
+                // the native image-hash matches (deterministic JPEG re-encode).
+                // If it ever doesn't match, the fast path simply falls back to a
+                // full encode — never a wrong result.
+                val processed = ImagePreprocessor.preprocess(imageBytes, visionInputMaxDim()) ?: imageBytes
+                val prefix = ClinicalPrompt.buildVisionPrefix()
+                val t0 = System.currentTimeMillis()
+                val n = LlamaCpp.encodeImagePrefix(modelHandle, prefix, processed)
+                prefixWarmed = false  // the vision encode overwrote any text prefix
+                Log.d(TAG, "prewarmImage: encoded [prefix+image] -> $n tokens in ${System.currentTimeMillis() - t0}ms")
+            } catch (e: Exception) {
+                Log.w(TAG, "prewarmImage skipped: ${e.message}")
             }
         }
     }
@@ -703,24 +776,17 @@ class HealthDemoViewModel @Inject constructor(
         val hasImage = state.capturedImageBytes != null
 
         if (hasImage) {
-            // Load vision encoder if needed
+            // Load vision encoder if needed (prewarmImage usually did this already)
             if (!visionLoaded) {
                 setStatus("Loading vision...")
-                val mmprojPath = ModelAssetManager.getModelPath(appContext, ModelAssetManager.VISION_MODEL)
-                Log.d(TAG, "Loading vision encoder from $mmprojPath")
-                val mmprojFile = java.io.File(mmprojPath)
-                if (mmprojFile.exists()) {
-                    visionLoaded = LlamaCpp.initVision(modelHandle, mmprojPath)
-                    Log.d(TAG, "Vision encoder loaded: $visionLoaded")
-                } else {
-                    Log.w(TAG, "mmproj not found at $mmprojPath")
-                }
+                ensureVisionLoaded()
             }
 
             if (visionLoaded) {
-                // Preprocess image
+                // Preprocess image (same maxDim as prewarmImage so the cached
+                // eager-encode hash matches)
                 setStatus("Processing image...")
-                val processedImage = ImagePreprocessor.preprocess(state.capturedImageBytes!!)
+                val processedImage = ImagePreprocessor.preprocess(state.capturedImageBytes!!, visionInputMaxDim())
                     ?: state.capturedImageBytes
                 Log.d(TAG, "Image preprocessed: ${state.capturedImageBytes.size} -> ${processedImage.size} bytes")
 

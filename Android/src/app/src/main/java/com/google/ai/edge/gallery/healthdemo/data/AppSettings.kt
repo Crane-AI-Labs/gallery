@@ -21,6 +21,26 @@ object AppSettings {
     private const val KEY_ROLE = "user_role"
     private const val KEY_CONSENT_VERSION = "consent_version_accepted"
     private const val KEY_LAST_ACTIVE = "last_active_ms"
+    private const val KEY_FAST_IMAGE_MODE = "fast_image_mode"
+
+    /**
+     * Reduced-resolution ("fast") image analysis. When on, the vision encoder
+     * runs at [FAST_IMAGE_SIZE] px instead of the model's native 896 px, cutting
+     * the on-device image-encode ~4x at the cost of fine visual detail. Off by
+     * default — this is a clinical-quality tradeoff to be validated per site.
+     */
+    const val FAST_IMAGE_SIZE = 448
+
+    fun isFastImageMode(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_FAST_IMAGE_MODE, false)
+
+    fun setFastImageMode(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_FAST_IMAGE_MODE, enabled).apply()
+    }
+
+    /** ViT input size to use given the setting: reduced size, or 0 = model default. */
+    fun visionImageSize(context: Context): Int =
+        if (isFastImageMode(context)) FAST_IMAGE_SIZE else 0
 
     /**
      * Bump this when the consent copy changes materially (new data practices,

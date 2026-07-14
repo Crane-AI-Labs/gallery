@@ -29,6 +29,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -67,6 +69,7 @@ fun SettingsScreen(
     var asrModelName by remember { mutableStateOf(AppSettings.getAsrModelName(context)) }
     var tokenizerName by remember { mutableStateOf(AppSettings.getTokenizerName(context)) }
     var selectedRole by remember { mutableStateOf(AppSettings.getRole(context)) }
+    var fastImageMode by remember { mutableStateOf(AppSettings.isFastImageMode(context)) }
     var isCopying by remember { mutableStateOf(false) }
     var copyingLabel by remember { mutableStateOf("") }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -269,6 +272,42 @@ fun SettingsScreen(
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
                         }
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // --- Fast image analysis (reduced-resolution vision) ---
+            Text("Fast image analysis", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+            Spacer(modifier = Modifier.height(4.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color.White,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(8.dp)),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text("Analyze photos faster", fontSize = 15.sp, color = Color(0xFF1F1F1F))
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            "Runs image analysis at a lower resolution — much quicker on this phone, but fine visual detail (rashes, lesion edges, label text) may be less clear. Symptom text and vitals are unaffected.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF888888),
+                        )
+                    }
+                    Switch(
+                        checked = fastImageMode,
+                        onCheckedChange = {
+                            fastImageMode = it
+                            AppSettings.setFastImageMode(context, it)
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF2E7D32)),
+                    )
                 }
             }
 

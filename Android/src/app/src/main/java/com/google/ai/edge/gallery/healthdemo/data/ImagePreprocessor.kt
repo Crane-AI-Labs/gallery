@@ -15,8 +15,13 @@ object ImagePreprocessor {
     /**
      * Decode, resize, and re-encode image bytes.
      * Returns JPEG bytes at the target resolution, or null if decoding fails.
+     *
+     * @param maxDim longest-edge cap. Keep at/above the encoder's square input
+     *   so it isn't sliced (pan-and-scan). For reduced-resolution vision, pass
+     *   the reduced size (e.g. 448) so the input stays a single tile.
      */
-    fun preprocess(rawBytes: ByteArray): ByteArray? {
+    fun preprocess(rawBytes: ByteArray, maxDim: Int = MAX_DIMENSION): ByteArray? {
+        val MAX_DIMENSION = if (maxDim > 0) maxDim else MAX_DIMENSION
         // Decode to get dimensions without loading full bitmap
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)

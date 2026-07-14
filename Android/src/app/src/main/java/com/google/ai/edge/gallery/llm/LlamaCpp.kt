@@ -196,9 +196,25 @@ object LlamaCpp {
         return nativeGetCacheTokenCount(handle)
     }
 
-    fun initVision(handle: Long, mmprojPath: String): Boolean {
+    /**
+     * @param imageSize override the square ViT input size (0 = model default,
+     *   896 for MedGemma). A smaller value (e.g. 448) enables reduced-resolution
+     *   "fast image mode" — quicker encode, less fine detail.
+     */
+    fun initVision(handle: Long, mmprojPath: String, imageSize: Int = 0): Boolean {
         if (!nativeLoaded) return false
-        return nativeInitVision(handle, mmprojPath)
+        return nativeInitVision(handle, mmprojPath, imageSize)
+    }
+
+    /**
+     * Eagerly encode [constant prefix + image] into the KV cache (the ~184s
+     * SigLIP forward) so a following [completionWithImage] with the same image +
+     * prefix only prefills the patient tail. Run in the background at image
+     * attach time. Returns the resident token count, or -1 on error.
+     */
+    fun encodeImagePrefix(handle: Long, prefixPrompt: String, imageData: ByteArray): Int {
+        if (!nativeLoaded) return -1
+        return nativeEncodeImagePrefix(handle, prefixPrompt, imageData)
     }
 
     fun completionWithImage(
@@ -229,7 +245,8 @@ object LlamaCpp {
     private external fun nativeGetThreadCount(handle: Long): Int
     private external fun nativeGetPerfCoreInfo(): String
     private external fun nativeReleaseModel(handle: Long)
-    private external fun nativeInitVision(handle: Long, mmprojPath: String): Boolean
+    private external fun nativeInitVision(handle: Long, mmprojPath: String, imageSize: Int): Boolean
+    private external fun nativeEncodeImagePrefix(handle: Long, prefixPrompt: String, imageData: ByteArray): Int
     private external fun nativeCompletionWithImage(
         handle: Long, prompt: String, imageData: ByteArray, nPredict: Int,
         temperature: Float, topK: Int, topP: Float, callback: TokenCallback
