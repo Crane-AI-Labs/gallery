@@ -40,6 +40,7 @@ SPEC_DECODE_BENCHMARK.md
 PERF_ROADMAP.md
 LUGANDA_TRANSLATION_BUG.md
 WEATHERNEXT_HANDOFF.md
+VISION_OPTIMIZATIONS.md
 benchmark-artifacts-*/
 # Bug reports / exported office docs are internal by default here
 *.pdf
