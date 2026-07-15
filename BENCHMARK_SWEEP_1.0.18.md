@@ -17,7 +17,7 @@
 | **Optional 448 px fast-image mode** | 448 vs 896 encode + total (setting off by default) |
 | **MedASR sparse mel** | ASR cold/hot, mel + inference, RTF |
 
-Baseline for the regression table = the 1.0.15 numbers in `DEVICE_BENCHMARK_REPORT.md` §4.
+Baseline for the regression table = **`benchmark-assets/baseline_1.0.15.md`** (distilled, committed). NB: 1.0.15 was **text-only** → **vision + MedASR have no 1.0.15 baseline** (report them as net-new, not as a delta). Text regression: compare 1.0.15 cold vs 1.0.18 *cold no-prewarm* (pure kernel/KV delta) and vs *cold prewarm-hidden* (shipped-UX delta).
 
 ---
 
@@ -82,7 +82,7 @@ The devices the old report proved **viable** (all Helio G99 / dotprod), plus one
 ## 3. Standardized inputs (identical on every device, every run)
 
 - **Symptoms text (continuity with old report):** `"Child aged 3 with fever for 2 days, vomiting…"` (same 1,113-token full prompt). Add a **2nd fixed vignette** for a different severity if we want output-consistency coverage.
-- **Test image:** one fixed clinical-style JPEG (reuse `vision_test.jpg`, 1024×1024; or a curated skin/wound image). Same bytes on every device so the encode is comparable and the overlap hash matches.
+- **Test image:** `benchmark-assets/vision_test.jpg` — fixed **1024×1024** JPEG, **sha256 `614ab4a8…`** (the exact bytes used in all prior on-device vision tests). Push these bytes to every device (verify the sha before each run) so the encode is comparable and the overlap hash matches. *(If a real clinical image is preferred, swap it into `benchmark-assets/` and it becomes canonical — same-bytes-everywhere is the only requirement.)*
 - **Test audio:** `benchmark-assets/test_asr_12s.wav` — a fixed **12.5 s** English clinical-description clip, **16 kHz mono 16-bit PCM** (synthetic TTS; reference transcript in `benchmark-assets/test_asr_reference.txt`). Same file everywhere so RTF is comparable. Delivery via loopback (see §7). *(Synthetic voice → use for timing/RTF; real-speech WER is a fast-follow.)*
 - **Age/Sex:** fixed (e.g. 34 / Male) to satisfy the required fields.
 
