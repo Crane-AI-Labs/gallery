@@ -81,7 +81,10 @@ The devices the old report proved **viable** (all Helio G99 / dotprod), plus one
 
 ## 3. Standardized inputs (identical on every device, every run)
 
-- **Symptoms text (continuity with old report):** `"Child aged 3 with fever for 2 days, vomiting…"` (same 1,113-token full prompt). Add a **2nd fixed vignette** for a different severity if we want output-consistency coverage.
+- **Symptoms text — TWO fixed vignettes (important):**
+  - **V1 (cold runs):** `"Child aged 3 with fever for 2 days, vomiting…"` — continuity with the old report's cold numbers.
+  - **V2 (warm/hot runs):** a **distinct** patient, e.g. `"Adult 45, chest pain and shortness of breath for 3 hours, sweating, no fever."` — age 45 / Male.
+  - **Why two:** warm runs MUST use a *different* tail from the cold run in the same session. Re-submitting the **identical** full prompt warm hits the `n_new==0` full-cache-hit path — a confirmed stale-logits bug (garbage first token → retry) that also **contaminates the warm timing**. A different tail keeps the constant prefix cached (still a real warm-KV test) while forcing `n_new>0` — which is exactly what real multi-patient use does. This makes the warm cells representative *and* clean.
 - **Test image:** `benchmark-assets/vision_test.jpg` — fixed **1024×1024** JPEG, **sha256 `614ab4a8…`** (the exact bytes used in all prior on-device vision tests). Push these bytes to every device (verify the sha before each run) so the encode is comparable and the overlap hash matches. *(If a real clinical image is preferred, swap it into `benchmark-assets/` and it becomes canonical — same-bytes-everywhere is the only requirement.)*
 - **Test audio:** `benchmark-assets/test_asr_12s.wav` — a fixed **12.5 s** English clinical-description clip, **16 kHz mono 16-bit PCM** (synthetic TTS; reference transcript in `benchmark-assets/test_asr_reference.txt`). Same file everywhere so RTF is comparable. Delivery via loopback (see §7). *(Synthetic voice → use for timing/RTF; real-speech WER is a fast-follow.)*
 - **Age/Sex:** fixed (e.g. 34 / Male) to satisfy the required fields.
@@ -92,7 +95,7 @@ The devices the old report proved **viable** (all Helio G99 / dotprod), plus one
 
 - **Cold** = force-stop → fresh launch → first assessment of the session (KV empty, model cold-loaded). **Hot/warm** = subsequent assessment, same session (model resident, prefix cached).
 - **Reps:** text ≥3 sessions/device (cold) + ≥2 hot; vision ≥3 cold + ≥2 hot; ASR ≥3 cold + ≥3 hot. Sustained run: 1× per device (10 assessments).
-- **Determinism:** the app samples at temp 0.5 with a **fixed seed (42)** → identical input yields **byte-identical output**; use that for clean timing A/B and cross-device identity checks. (No need to force greedy.)
+- **Determinism (corrected):** the sampler is seeded `dist(42)` **once at model load**, and its RNG **advances across assessments** (it is NOT reset per request). So byte-identical output only holds for the **first assessment after a fresh model load** (cold). Warm repeats drift even for identical input. ⇒ use output-identity checks **only cold-after-fresh-load**; for warm, expect valid-but-different sampled paths. (This RNG-not-reset behaviour is a separate known issue from the `n_new==0` bug — see §3.)
 - **Thermal fairness:** record battery temp at the start of every run; **cool-down** (or note temp) between sessions; the primary matrix is **USB-powered, screen-on**; the sustained + screen-off variants are separate, labelled runs.
 - **Timing source:** the app's own logcat markers (`Loading model from` → `MedGemma model loaded` → prefill/`Running … inference` → `VISION-TIMING …` → `Inference complete` → `Saved assessment`). Native `VISION-TIMING` already splits tokenize/eval/decode. Device wall-clocks drift — use **within-device log deltas** only.
 - **Resource sampling:** host-side every 2 s — MemAvailable, app PSS (smaps_rollup, dumpsys fallback), per-core freq, battery temp/level, thermal status; plus LMK/crash from logcat.
@@ -118,6 +121,8 @@ Per device, per scenario, capture the full metric set of §2 + resource CSV:
 | Memory | full concurrent flow (symptoms+image+voice) | 2 |
 | Sustained | 10 back-to-back, **unplugged** | 1 |
 | Screen-off | text cold, screen off | 1 |
+
+**Input convention:** **cold** cells use **V1**; **hot/warm** cells use **V2** (distinct tail — mandatory for text-hot to avoid the `n_new==0` bug; representative for the rest). The overlap A/B and 448-vs-896 still use the same fixed image bytes.
 
 ≈ 24 runs/device × 4 devices ≈ ~**100 runs** → this is why it needs the Sonnet-worker fan-out.
 

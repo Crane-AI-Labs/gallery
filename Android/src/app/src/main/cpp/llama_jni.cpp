@@ -714,6 +714,21 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
         }
     }
 
+    // Full-cache-hit guard (fixes the n_new==0 stale-logits bug). If the ENTIRE
+    // prompt is already resident (n_keep == n_tokens), the eval loop below never
+    // runs, so no llama_decode happens this call — and the first token is then
+    // sampled at idx=-1 from the PREVIOUS generation's logits. Truncating the KV
+    // (seq_rm) restores the prompt's KV cells but does NOT recompute the logits
+    // for the prompt's final position, so the model samples its first token from
+    // a stale, wrong distribution → off-distribution/garbage → parse failure →
+    // retry. Force at least one token to be re-decoded so idx=-1 holds the correct
+    // logits. Only bites the identical-prompt re-submit case (benchmark warm
+    // repeats / a "regenerate same patient"); normal per-patient prompts differ in
+    // the tail, so n_new is always > 0 there and this is a no-op.
+    if (n_keep == n_tokens && n_tokens > 0) {
+        n_keep = n_tokens - 1;
+    }
+
     // If the cache diverged from the new prompt, we need to truncate the KV cache
     // back to the common prefix point
     if (n_keep < n_cached) {
