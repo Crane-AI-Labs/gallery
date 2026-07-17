@@ -48,6 +48,18 @@ static double now_ms() {
     return ts.tv_sec * 1000.0 + ts.tv_nsec / 1.0e6;
 }
 
+// Validation hook: `adb shell setprop debug.eh.greedy 1` forces topK=1 (argmax)
+// so identical input must reproduce byte-identical output — the invariant used
+// to verify KV-cache correctness on device (e.g. the n_new==0 stale-logits fix)
+// and for clean speed A/Bs. Sampling-only; no effect unless the property is set.
+static void apply_debug_greedy(jint & topK) {
+    char prop[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("debug.eh.greedy", prop) > 0 && prop[0] == '1') {
+        if (topK != 1) LOGI("debug.eh.greedy=1: forcing topK=1 (deterministic argmax)");
+        topK = 1;
+    }
+}
+
 // ─── Single-model speculative decoding: ngram-map-k4v ───────────────────────
 // Port of llama.cpp common/ngram-map.{h,cpp} (ref: ggml-org/llama.cpp PR-18471)
 // into this JNI so it works against the prebuilt librnllama (which has no
@@ -662,6 +674,8 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
 
     inf_ctx->stop_requested = false;
 
+    apply_debug_greedy(topK);
+
     // Rebuild sampler if params changed
     if (temperature != inf_ctx->temperature ||
         topK != inf_ctx->top_k ||
@@ -1226,6 +1240,8 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletionWithImage(
 
     inf_ctx->stop_requested = false;
 
+    apply_debug_greedy(topK);
+
     // Rebuild sampler if params changed
     if (temperature != inf_ctx->temperature ||
         topK != inf_ctx->top_k ||
@@ -1260,8 +1276,14 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletionWithImage(
     uint64_t prefix_hash = fnv1a(prefix_str.data(), prefix_str.size());
 
     llama_pos n_past = 0;
+    // Require a non-empty tail: with no tail the fast path would run zero
+    // llama_decode calls and generation would sample idx=-1 from whatever the
+    // last decode left behind (same class of bug as the text n_new==0 stale-
+    // logits defect). Can't happen with the current prompt template (the tail
+    // always carries patient block + turn markers) — defensive only.
     bool fast_path = inf_ctx->vision_prefix_ready
         && marker_pos != std::string::npos
+        && !tail_str.empty()
         && inf_ctx->vision_image_hash == img_hash
         && inf_ctx->vision_prefix_hash == prefix_hash;
     // Single-use: appending the tail below replaces the "just [prefix+image]"
