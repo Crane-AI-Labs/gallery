@@ -89,7 +89,9 @@ fun GuidanceScreen(
     var showReturnHomeDialog by remember { mutableStateOf(false) }
     var showReferralSheet by remember { mutableStateOf(false) }
     var showPauseSheet by remember { mutableStateOf(false) }
-    var flagged by remember { mutableStateOf(false) }
+    // 3.1: flag state lives in the ViewModel so it persists onto the saved
+    // assessment and syncs (previously screen-local — the value went nowhere).
+    val flagged = uiState.guidanceConcern
 
     val referralSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pauseSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -402,7 +404,7 @@ fun GuidanceScreen(
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier
-                        .clickable { flagged = !flagged }
+                        .clickable { viewModel.setGuidanceConcern(!flagged) }
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

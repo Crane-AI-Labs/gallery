@@ -25,7 +25,7 @@ private const val TAG = "HealthDatabase"
 
 @Database(
     entities = [SavedAssessmentEntity::class, PausedConsultationEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 @TypeConverters(HealthTypeConverters::class)
@@ -124,6 +124,24 @@ abstract class HealthDatabase : RoomDatabase() {
             }
         }
 
+        /** Migration 7→8 (July 2026 pipeline note): per-assessment quality +
+         *  instrumentation fields — the guidance-concern flag (item 3.1: the
+         *  on-screen "Flag this guidance" toggle previously went nowhere),
+         *  time-to-first-token, and the inference retry count (item 3.5).
+         *  Existing rows default to unflagged / NULL / 0. */
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN guidanceConcern INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN ttftMs INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN inferenceRetries INTEGER NOT NULL DEFAULT 0")
+                // treatmentAdministered existed in the domain model + UI since
+                // April but the entity mapper silently dropped it — it was never
+                // persisted. Existing rows get '' (genuinely unknown).
+                db.execSQL("ALTER TABLE saved_assessments ADD COLUMN treatmentAdministered TEXT NOT NULL DEFAULT ''")
+                Log.d(TAG, "Migration 7→8 complete: added guidanceConcern + ttftMs + inferenceRetries + treatmentAdministered")
+            }
+        }
+
         private val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -131,6 +149,7 @@ abstract class HealthDatabase : RoomDatabase() {
             MIGRATION_4_5,
             MIGRATION_5_6,
             MIGRATION_6_7,
+            MIGRATION_7_8,
         )
 
         fun getInstance(context: Context): HealthDatabase {

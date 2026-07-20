@@ -51,6 +51,16 @@ data class SavedAssessmentEntity(
     val district: String? = null,
     // Wall-clock generation latency (ms). Migration 6→7. Null on legacy rows.
     val inferenceMs: Long? = null,
+    // July 2026 pipeline note (migration 7→8):
+    // 3.1 — worker flagged the AI guidance as concerning (the on-screen toggle).
+    val guidanceConcern: Boolean = false,
+    // 3.5 — time to first generated token (ms); null on legacy rows.
+    val ttftMs: Long? = null,
+    // 3.5 — number of inference retries before this assessment succeeded.
+    val inferenceRetries: Int = 0,
+    // 3.6 — what the worker actually did/prescribed (was captured in the UI
+    // since April but never persisted until migration 7→8).
+    val treatmentAdministered: String = "",
     // Sync: ms timestamp of the last successful POST to the Uganda API,
     // or null if never uploaded. Used to skip already-synced rows during
     // startup backfill so we don't re-push everything every launch.
@@ -70,6 +80,9 @@ fun SavedAssessment.toEntity() = SavedAssessmentEntity(
     latitude = latitude, longitude = longitude,
     locationAccuracyMeters = locationAccuracyMeters, district = district,
     inferenceMs = inferenceMs,
+    guidanceConcern = guidanceConcern, ttftMs = ttftMs,
+    inferenceRetries = inferenceRetries,
+    treatmentAdministered = treatmentAdministered,
 )
 
 fun SavedAssessmentEntity.toDomain() = SavedAssessment(
@@ -88,6 +101,9 @@ fun SavedAssessmentEntity.toDomain() = SavedAssessment(
     latitude = latitude, longitude = longitude,
     locationAccuracyMeters = locationAccuracyMeters, district = district,
     inferenceMs = inferenceMs,
+    guidanceConcern = guidanceConcern, ttftMs = ttftMs,
+    inferenceRetries = inferenceRetries,
+    treatmentAdministered = treatmentAdministered,
 )
 
 @Dao

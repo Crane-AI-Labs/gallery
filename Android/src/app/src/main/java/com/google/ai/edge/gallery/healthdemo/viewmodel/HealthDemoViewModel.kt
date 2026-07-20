@@ -137,6 +137,16 @@ data class HealthDemoUiState(
     // getGuidance() once inference returns, copied onto the saved
     // assessment in buildSavedAssessment(). Null until the first run.
     val lastInferenceMs: Long? = null,
+
+    // July 2026 pipeline note:
+    // 3.1 — the worker flagged this guidance as concerning (GuidanceScreen toggle).
+    val guidanceConcern: Boolean = false,
+    // 3.5 — ms from the successful attempt's start to its first generated
+    // token (includes model load + prefill when cold — i.e. the wait the
+    // worker actually experiences before anything appears).
+    val lastTtftMs: Long? = null,
+    // 3.5 — retries before the last inference succeeded (0 = first attempt).
+    val lastInferenceRetries: Int = 0,
 )
 
 @HiltViewModel
@@ -163,6 +173,12 @@ class HealthDemoViewModel @Inject constructor(
     // true once the constant instruction+few-shot prefix has been prefilled
     // into the KV cache (by prewarm or a prior assessment).
     @Volatile private var prefixWarmed = false
+
+    // 3.5 instrumentation — set by runMedGemmaInference for the most recent
+    // attempt; runMedGemmaInferenceWithRetry leaves them describing the
+    // attempt whose guidance was actually returned.
+    @Volatile private var lastAttemptTtftMs: Long? = null
+    @Volatile private var lastRunRetries: Int = 0
 
     fun setRole(role: PatientRole) {
         val prevCustomRole = _uiState.value.customRole
@@ -248,6 +264,12 @@ class HealthDemoViewModel @Inject constructor(
 
     fun setClinicalAcknowledged(ack: Boolean) {
         _uiState.update { it.copy(clinicianAcknowledged = ack) }
+    }
+
+    // 3.1 — the GuidanceScreen "Flag this guidance" toggle. Persisted with the
+    // assessment and synced; previously the control was on-screen but unwired.
+    fun setGuidanceConcern(flagged: Boolean) {
+        _uiState.update { it.copy(guidanceConcern = flagged) }
     }
 
     fun setTreatmentAdministered(text: String) {
@@ -529,6 +551,9 @@ class HealthDemoViewModel @Inject constructor(
                         savedAssessment = null,
                         isProcessing = false,
                         lastInferenceMs = durationMs,
+                        lastTtftMs = lastAttemptTtftMs,
+                        lastInferenceRetries = lastRunRetries,
+                        guidanceConcern = false,  // fresh guidance → fresh flag
                     ) }
                 } else if (durationMs >= INFERENCE_TIMEOUT_MS) {
                     // Watchdog fired — abort the native call so the next
@@ -582,6 +607,7 @@ class HealthDemoViewModel @Inject constructor(
         // Check if we got real clinical data (not the fallback placeholder)
         if (firstParse.wasValid && firstParse.guidance.possibleCondition != "Refer: unable to parse AI assessment") {
             Log.d(TAG, "First attempt succeeded, triage: ${firstParse.guidance.triageLevel}")
+            lastRunRetries = 0
             return firstParse.guidance
         }
 
@@ -605,6 +631,7 @@ class HealthDemoViewModel @Inject constructor(
         }
 
         Log.d(TAG, "Second attempt succeeded, triage: ${secondParse.guidance.triageLevel}")
+        lastRunRetries = 1
         return secondParse.guidance
     }
 
@@ -765,10 +792,17 @@ class HealthDemoViewModel @Inject constructor(
             ensureModelLoaded()
         }
 
-        // Collect streamed response
+        // Collect streamed response. Also capture time-to-first-token (3.5):
+        // measured from here so it includes model load + prefill when cold —
+        // the wait the worker actually experiences before output appears.
+        val attemptStartMs = System.currentTimeMillis()
+        lastAttemptTtftMs = null
         val responseBuilder = StringBuilder()
         val callback = object : TokenCallback {
             override fun onToken(token: String) {
+                if (responseBuilder.isEmpty() && lastAttemptTtftMs == null) {
+                    lastAttemptTtftMs = System.currentTimeMillis() - attemptStartMs
+                }
                 responseBuilder.append(token)
             }
         }
@@ -902,6 +936,9 @@ class HealthDemoViewModel @Inject constructor(
             longitude = state.capturedLocation?.longitude,
             locationAccuracyMeters = state.capturedLocation?.accuracyMeters,
             inferenceMs = state.lastInferenceMs,
+            guidanceConcern = state.guidanceConcern,
+            ttftMs = state.lastTtftMs,
+            inferenceRetries = state.lastInferenceRetries,
         )
     }
 

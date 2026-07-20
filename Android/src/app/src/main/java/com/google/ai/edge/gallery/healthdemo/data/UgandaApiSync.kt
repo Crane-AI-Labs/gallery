@@ -104,6 +104,10 @@ object UgandaApiSync {
             // device as-is.
             "traditional_medicine" to assessment.traditionalMedicine?.name,
             "traditional_medicine_details" to PiiRedactor.redact(assessment.traditionalMedicineDetails).text,
+            // 3.6 (July 2026 pipeline note): what the worker actually did /
+            // prescribed — captured in the UI since April but never synced.
+            // Free text, so redact like the other free-text fields.
+            "treatment_administered" to PiiRedactor.redact(assessment.treatmentAdministered).text,
             "guidance" to mapOf(
                 "triage_level" to assessment.guidance.triageLevel,
                 // Keep `condition` as the primary (most-likely) for
@@ -145,6 +149,14 @@ object UgandaApiSync {
             // Wall-clock generation latency (ms). Null on rows saved
             // before migration 6→7 — server treats null as unknown.
             "inference_ms" to assessment.inferenceMs,
+            // July 2026 pipeline note:
+            // 3.1 — worker flagged the AI guidance as concerning.
+            "guidance_concern" to assessment.guidanceConcern,
+            // 3.5 — time to first token (ms) + retry count for the run.
+            "ttft_ms" to assessment.ttftMs,
+            "inference_retries" to assessment.inferenceRetries,
+            // 3.8 — device-level test-traffic flag (Settings toggle).
+            "is_test" to AppSettings.isTestDevice(context),
         )
 
         val ok = UgandaApi.postJson(context, "/assessments", payload)

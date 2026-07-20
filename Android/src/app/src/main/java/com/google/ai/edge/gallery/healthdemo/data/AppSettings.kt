@@ -43,6 +43,21 @@ object AppSettings {
         if (isFastImageMode(context)) FAST_IMAGE_SIZE else 0
 
     /**
+     * July 2026 pipeline note 3.8: mark this device's records as test traffic.
+     * Synced as `is_test` on every assessment so analytics can exclude in-house
+     * QA rows cleanly instead of filtering by date. Off by default; enable on
+     * office/demo devices only.
+     */
+    private const val KEY_TEST_DEVICE = "test_device"
+
+    fun isTestDevice(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_TEST_DEVICE, false)
+
+    fun setTestDevice(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_TEST_DEVICE, enabled).apply()
+    }
+
+    /**
      * Bump this when the consent copy changes materially (new data practices,
      * new processors, broader sharing). A user who has accepted version N
      * will be re-prompted when the stored value differs from [CURRENT_CONSENT_VERSION].

@@ -311,4 +311,11 @@ data class SavedAssessment(
     // runMedGemmaInferenceWithRetry. Null on rows saved before
     // migration 6→7 — the field didn't exist then.
     val inferenceMs: Long? = null,
+    // July 2026 pipeline note (migration 7→8):
+    // 3.1 — worker flagged the AI guidance as concerning.
+    val guidanceConcern: Boolean = false,
+    // 3.5 — ms from inference start to the first generated token.
+    val ttftMs: Long? = null,
+    // 3.5 — retries before the assessment succeeded (0 = first attempt).
+    val inferenceRetries: Int = 0,
 )

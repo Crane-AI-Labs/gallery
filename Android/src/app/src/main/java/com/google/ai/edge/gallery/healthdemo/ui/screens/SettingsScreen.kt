@@ -70,6 +70,7 @@ fun SettingsScreen(
     var tokenizerName by remember { mutableStateOf(AppSettings.getTokenizerName(context)) }
     var selectedRole by remember { mutableStateOf(AppSettings.getRole(context)) }
     var fastImageMode by remember { mutableStateOf(AppSettings.isFastImageMode(context)) }
+    var testDevice by remember { mutableStateOf(AppSettings.isTestDevice(context)) }
     var isCopying by remember { mutableStateOf(false) }
     var copyingLabel by remember { mutableStateOf("") }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -305,6 +306,42 @@ fun SettingsScreen(
                         onCheckedChange = {
                             fastImageMode = it
                             AppSettings.setFastImageMode(context, it)
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF2E7D32)),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // --- Test device (pipeline note 3.8) ---
+            Text("Test device", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+            Spacer(modifier = Modifier.height(4.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color.White,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(8.dp)),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text("Mark records as test data", fontSize = 15.sp, color = Color(0xFF1F1F1F))
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            "Turn on for office/demo phones only. Assessments from this device are tagged as test traffic and excluded from field analytics.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF888888),
+                        )
+                    }
+                    Switch(
+                        checked = testDevice,
+                        onCheckedChange = {
+                            testDevice = it
+                            AppSettings.setTestDevice(context, it)
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF2E7D32)),
                     )
