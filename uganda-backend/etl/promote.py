@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import sys
 from datetime import date, datetime, timezone
 from typing import Any
@@ -79,16 +80,47 @@ REPLACEMENT_MAP = {
 }
 
 
+class RedactionError(Exception):
+    """A row's text could not be safely redacted. Fail closed: the caller must
+    leave the row unpromoted rather than promote possibly-raw PII."""
+
+
+# Narrow structured-date catch (closes the DOB false-negative without turning
+# on Presidio DATE_TIME, which shreds clinical durations like "for 3 days"):
+# full dates carrying a year, in either order, plus DOB-labelled fragments.
+# None of these shapes can match a duration.
+DATE_PII_PATTERNS = [
+    re.compile(r"\b\d{1,2}[/\-.]\d{1,2}[/\-.](?:19|20)\d{2}\b"),
+    re.compile(r"\b(?:19|20)\d{2}[/\-.]\d{1,2}[/\-.]\d{1,2}\b"),
+    re.compile(
+        r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(?:19|20)\d{2}\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"(?i)\b(?:dob|date\s+of\s+birth|born(?:\s+on)?)\b[\s:]*[^,.;\n]{0,24}\d"),
+]
+
+
 def redact(text: str | None) -> tuple[str | None, bool]:
-    """Return (redacted_text, was_flagged)."""
+    """Return (redacted_text, was_flagged).
+
+    Raises RedactionError instead of passing text through when NER fails on
+    this row. Before 2026-07-13 a per-row Presidio exception returned the
+    ORIGINAL text unflagged, and the row was promoted to tier_2 permanently —
+    the per-row path must be as fail-closed as the load-time check in main().
+    """
     if not text:
         return text, False
+    flagged = False
+    for pat in DATE_PII_PATTERNS:
+        text, n = pat.subn("[DATE]", text)
+        if n:
+            flagged = True
     if not PRESIDIO_AVAILABLE:
-        return text, False  # regex on-device is first line; this is belt-and-braces
+        raise RedactionError("Presidio unavailable")
     try:
         results = analyzer.analyze(text=text, entities=PII_ENTITIES, language="en")
         if not results:
-            return text, False
+            return text, flagged
         operators = {
             ent: OperatorConfig("replace", {"new_value": REPLACEMENT_MAP.get(ent, f"[{ent}]")})
             for ent in REPLACEMENT_MAP
@@ -96,8 +128,18 @@ def redact(text: str | None) -> tuple[str | None, bool]:
         redacted = anonymizer.anonymize(text=text, analyzer_results=results, operators=operators)
         return redacted.text, True
     except Exception as e:
-        log.error("NER failed: %s", e)
-        return text, False
+        raise RedactionError(f"NER failed: {e}") from e
+
+
+def redact_list(items: list | None) -> tuple[list, bool]:
+    """Element-wise redact for the clinical text arrays (treatment, next_steps)."""
+    out: list = []
+    flagged = False
+    for item in items or []:
+        red, f = redact(item)
+        out.append(red)
+        flagged = flagged or f
+    return out, flagged
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -119,8 +161,10 @@ AGE_BUCKET_MAP = {
     "Young Child (1–5 yrs)": "1-4y",
     "Child (6-12 yrs)": "5-14y",
     "Child (6–12 yrs)": "5-14y",
-    "Adolescent (13-17)": "5-14y",
-    "Adolescent (13–17)": "5-14y",
+    # Fixed 2026-07-13: was mapped to "5-14y", mislabeling 13-17-year-olds in
+    # analytics. A faithful bucket beats forcing them into 5-14y or 15-49y.
+    "Adolescent (13-17)": "13-17y",
+    "Adolescent (13–17)": "13-17y",
     "Adult (18-49)": "15-49y",
     "Adult (18–49)": "15-49y",
     "Mature Adult (50-59)": "50-64y",
@@ -146,7 +190,11 @@ def iso_week(d: date) -> str:
 BATCH_SIZE = 50
 
 
-def promote_batch(conn) -> int:
+class _RowSkipped(Exception):
+    """Internal: row intentionally left unpromoted (fail-closed redaction)."""
+
+
+def promote_batch(conn) -> tuple[int, int]:
     """Promote up to BATCH_SIZE unprocessed rows.
 
     Each row is fetched, locked, redacted, and written inside its own
@@ -173,6 +221,7 @@ def promote_batch(conn) -> int:
         candidate_ids = [r[0] for r in cur.fetchall()]
 
     promoted = 0
+    skipped = 0
     for row_id in candidate_ids:
         try:
             # Re-read the row with a lock so we write against current data.
@@ -190,8 +239,21 @@ def promote_batch(conn) -> int:
                 # Someone else promoted it, or it vanished. Not our problem.
                 continue
 
-            symptoms_red, sflag = redact(row["symptoms"])
-            condition_red, cflag = redact(row["condition"])
+            # Fail closed per row: if any text can't be redacted, skip the row
+            # (leave ner_scanned_at NULL so it retries next run) and surface it.
+            try:
+                symptoms_red, f_sym = redact(row["symptoms"])
+                condition_red, f_cond = redact(row["condition"])
+                referral_notes_red, f_ref = redact(row["referral_notes"])
+                custom_role_red, f_role = redact(row["custom_role"])
+                treatment_admin_red, f_tadm = redact(row.get("treatment_administered"))
+                treatment_red, f_treat = redact_list(row["treatment"])
+                next_steps_red, f_next = redact_list(row["next_steps"])
+            except RedactionError as e:
+                log.error("Redaction failed for %s — left unpromoted (fail closed): %s", row_id, e)
+                conn.rollback()
+                raise _RowSkipped from e
+            any_flag = f_sym or f_cond or f_ref or f_role or f_tadm or f_treat or f_next
 
             submitted_at: datetime = row["submitted_at"]
             submitted_date = submitted_at.date()
@@ -209,7 +271,16 @@ def promote_batch(conn) -> int:
                         referral_urgency, referral_destination,
                         district,
                         chipset, total_ram_mb, native_variant, app_version,
-                        inference_ms
+                        inference_ms,
+                        device_model, device_manufacturer, android_api, android_version,
+                        max_cpu_freq_mhz, cpu_count, perf_cores, recommended_n_batch,
+                        treatment_redacted, next_steps_redacted, referral_reasons,
+                        referral_notes_redacted, custom_role_redacted,
+                        client_timestamp_ms, duration_value, duration_unit,
+                        age_years, age_months, spo2,
+                        treatment_administered_redacted, is_test,
+                        guidance_concern, ttft_ms, inference_retries,
+                        latitude, longitude
                     ) VALUES (
                         %s, %s, %s,
                         %s, %s, %s, %s,
@@ -220,11 +291,71 @@ def promote_batch(conn) -> int:
                         %s, %s,
                         %s,
                         %s, %s, %s, %s,
-                        %s
+                        %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s,
+                        %s, %s, %s,
+                        %s, %s
                     ) ON CONFLICT (pseudonym) DO UPDATE SET
+                        -- Full refresh (2026-07-13). The old 4-field SET list
+                        -- stranded late clinician confirmations and edits in
+                        -- tier 1 forever. Everything except the immutable keys
+                        -- now follows the tier-1 row.
+                        role = EXCLUDED.role,
                         symptoms_redacted = EXCLUDED.symptoms_redacted,
+                        age_bucket = EXCLUDED.age_bucket,
+                        sex = EXCLUDED.sex,
+                        temperature = EXCLUDED.temperature,
+                        pulse_rate = EXCLUDED.pulse_rate,
+                        blood_pressure = EXCLUDED.blood_pressure,
+                        respiratory_rate = EXCLUDED.respiratory_rate,
+                        confirmed_signs = EXCLUDED.confirmed_signs,
+                        triage_level = EXCLUDED.triage_level,
                         condition_redacted = EXCLUDED.condition_redacted,
+                        confidence = EXCLUDED.confidence,
+                        red_flags = EXCLUDED.red_flags,
+                        guidance_used = EXCLUDED.guidance_used,
+                        final_action = EXCLUDED.final_action,
+                        issue_tags = EXCLUDED.issue_tags,
+                        referral_urgency = EXCLUDED.referral_urgency,
+                        referral_destination = EXCLUDED.referral_destination,
+                        district = EXCLUDED.district,
+                        chipset = EXCLUDED.chipset,
+                        total_ram_mb = EXCLUDED.total_ram_mb,
+                        native_variant = EXCLUDED.native_variant,
+                        app_version = EXCLUDED.app_version,
                         inference_ms = COALESCE(EXCLUDED.inference_ms, tier_2_analytics.assessments.inference_ms),
+                        device_model = EXCLUDED.device_model,
+                        device_manufacturer = EXCLUDED.device_manufacturer,
+                        android_api = EXCLUDED.android_api,
+                        android_version = EXCLUDED.android_version,
+                        max_cpu_freq_mhz = EXCLUDED.max_cpu_freq_mhz,
+                        cpu_count = EXCLUDED.cpu_count,
+                        perf_cores = EXCLUDED.perf_cores,
+                        recommended_n_batch = EXCLUDED.recommended_n_batch,
+                        treatment_redacted = EXCLUDED.treatment_redacted,
+                        next_steps_redacted = EXCLUDED.next_steps_redacted,
+                        referral_reasons = EXCLUDED.referral_reasons,
+                        referral_notes_redacted = EXCLUDED.referral_notes_redacted,
+                        custom_role_redacted = EXCLUDED.custom_role_redacted,
+                        client_timestamp_ms = EXCLUDED.client_timestamp_ms,
+                        duration_value = EXCLUDED.duration_value,
+                        duration_unit = EXCLUDED.duration_unit,
+                        age_years = EXCLUDED.age_years,
+                        age_months = EXCLUDED.age_months,
+                        spo2 = EXCLUDED.spo2,
+                        treatment_administered_redacted = EXCLUDED.treatment_administered_redacted,
+                        is_test = EXCLUDED.is_test,
+                        guidance_concern = COALESCE(EXCLUDED.guidance_concern, tier_2_analytics.assessments.guidance_concern),
+                        ttft_ms = COALESCE(EXCLUDED.ttft_ms, tier_2_analytics.assessments.ttft_ms),
+                        inference_retries = COALESCE(EXCLUDED.inference_retries, tier_2_analytics.assessments.inference_retries),
+                        latitude = EXCLUDED.latitude,
+                        longitude = EXCLUDED.longitude,
                         promoted_at = now()
                     """,
                     (
@@ -241,6 +372,16 @@ def promote_batch(conn) -> int:
                         row["district"],
                         row["chipset"], row["total_ram_mb"], row["native_variant"], row["app_version"],
                         row.get("inference_ms"),
+                        row["device_model"], row["device_manufacturer"], row["android_api"], row["android_version"],
+                        row["max_cpu_freq_mhz"], row["cpu_count"], row["perf_cores"], row["recommended_n_batch"],
+                        treatment_red, next_steps_red, row["referral_reasons"] or [],
+                        referral_notes_red, custom_role_red,
+                        row["client_timestamp_ms"], row["duration_value"], row["duration_unit"],
+                        row.get("age_years"), row.get("age_months"), row.get("spo2"),
+                        treatment_admin_red, row.get("is_test", False),
+                        row.get("guidance_concern"), row.get("ttft_ms"), row.get("inference_retries"),
+                        # lat/lon promotion approved 2026-07-20 (already 2dp ~1.1km on-device)
+                        row.get("latitude"), row.get("longitude"),
                     ),
                 )
                 cur.execute(
@@ -249,15 +390,18 @@ def promote_batch(conn) -> int:
                     SET ner_scanned_at = now(), ner_flagged = %s
                     WHERE id = %s
                     """,
-                    (sflag or cflag, row["id"]),
+                    (any_flag, row["id"]),
                 )
             conn.commit()
             promoted += 1
+        except _RowSkipped:
+            skipped += 1
         except Exception as e:
-            log.exception("Failed to promote %s: %s", row["id"], e)
+            log.exception("Failed to promote %s: %s", row_id, e)
             conn.rollback()
+            skipped += 1
 
-    return promoted
+    return promoted, skipped
 
 
 def main() -> int:
@@ -274,12 +418,19 @@ def main() -> int:
     )
     try:
         total = 0
+        total_skipped = 0
         while True:
-            n = promote_batch(conn)
+            n, sk = promote_batch(conn)
             total += n
-            if n < BATCH_SIZE:
+            total_skipped += sk
+            if n + sk < BATCH_SIZE:
                 break
-        log.info("Promoted %d records", total)
+        log.info("Promoted %d records (%d skipped)", total, total_skipped)
+        if total_skipped:
+            # Non-zero exit so systemd marks the run failed and it is visible
+            # to monitoring; the skipped rows retry on the next timer fire.
+            log.error("%d rows left unpromoted (fail-closed redaction)", total_skipped)
+            return 1
     finally:
         conn.close()
     return 0

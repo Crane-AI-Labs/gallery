@@ -19,7 +19,7 @@ import asyncpg
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("api")
@@ -52,27 +52,35 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Ease Health Uganda API", version="1.1.0", lifespan=lifespan)
 
+
 VALIDATION_LOG = "/var/log/easehealth/validation-failures.jsonl"
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    import pathlib, datetime
+    import pathlib as _pl, datetime as _dt
+    # Field locations and error types only — never the submitted values or the
+    # raw body. A malformed submission can carry symptoms/notes/identifiers,
+    # and this log sits outside the tiered schema, its retention windows, and
+    # the §7 erasure path, so PII must not land here.
+    scrubbed_errors = [
+        {k: e.get(k) for k in ("loc", "msg", "type")} for e in exc.errors()
+    ]
     record = {
-        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "path": request.url.path,
-        "errors": exc.errors(),
-        "body": exc.body,
+        "errors": scrubbed_errors,
         "ip": request.client.host if request.client else None,
     }
     try:
-        pathlib.Path(VALIDATION_LOG).parent.mkdir(parents=True, exist_ok=True)
+        _pl.Path(VALIDATION_LOG).parent.mkdir(parents=True, exist_ok=True)
         with open(VALIDATION_LOG, "a") as f:
-            f.write(json.dumps(record, default=str) + "\n")
+            import json as _json
+            f.write(_json.dumps(record, default=str) + "\n")
     except Exception as e:
-        log.error("validation log write failed: %s", e)
-    return JSONResponse(status_code=422, content={"detail": exc.errors()})
-
+        import logging as _lg
+        _lg.getLogger("api").error("validation log write failed: %s", e)
+    return JSONResponse(status_code=422, content={"detail": scrubbed_errors})
 
 @app.exception_handler(Exception)
 async def catch_all(request: Request, exc: Exception) -> JSONResponse:
@@ -188,6 +196,9 @@ class VitalSigns(BaseModel):
     pulse_rate: str | None = Field(default=None, max_length=16)
     blood_pressure: str | None = Field(default=None, max_length=16)
     respiratory_rate: str | None = Field(default=None, max_length=16)
+    # The app has sent spo2 since the vitals rework; it was silently dropped
+    # here (Pydantic extra='ignore') until 2026-07-13.
+    spo2: str | None = Field(default=None, max_length=16)
 
 
 class Guidance(BaseModel):
@@ -248,6 +259,12 @@ class AssessmentPayload(BaseModel):
     duration_value: str | None = Field(default=None, max_length=16)
     duration_unit: DurationUnit | None = None
     age: str | None = Field(default=None, max_length=64)
+    # Numeric age as entered by the worker (the band in `age` is derived from
+    # these on-device). The app has always sent them as raw strings; they were
+    # silently dropped until 2026-07-13. Permissive parsing: blank / garbage
+    # becomes None rather than failing the whole sync with a 422.
+    age_years: int | None = Field(default=None, ge=0, le=130)
+    age_months: int | None = Field(default=None, ge=0, le=11)
     sex: SexEnum | None = None
     vital_signs: VitalSigns = Field(default_factory=VitalSigns)
     confirmed_signs: list[str] = Field(default_factory=list, max_length=30)
@@ -256,10 +273,34 @@ class AssessmentPayload(BaseModel):
     referral: Referral | None = None
     location: Location = Field(default_factory=Location)
     device: Device = Field(default_factory=Device)
+    # What the worker actually did/prescribed, distinct from the model's
+    # suggested treatment. Redacted on-device like other free text; the
+    # server ETL redacts again before tier-2.
+    treatment_administered: str | None = Field(default=None, max_length=MAX_FREE_TEXT)
+    # In-house/QA traffic marker so analytics can exclude test rows cleanly.
+    is_test: bool = False
+
+    @field_validator("age_years", "age_months", mode="before")
+    @classmethod
+    def _lenient_int(cls, v):
+        if v is None or isinstance(v, int):
+            return v
+        s = str(v).strip()
+        if not s:
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            return None
     # Wall-clock generation latency in ms. Bounded by the client-side
     # INFERENCE_TIMEOUT_MS (60s); allow up to 5 min in case we relax
     # that later. None for legacy clients (pre-1.0.4).
     inference_ms: int | None = Field(default=None, ge=0)
+    # July 2026 pipeline batch (app 1.0.19+): guidance-concern flag (3.1),
+    # time-to-first-token + retry count (3.5). None for older clients.
+    guidance_concern: bool | None = None
+    ttft_ms: int | None = Field(default=None, ge=0)
+    inference_retries: int | None = Field(default=None, ge=0, le=10)
 
 
 class PausedPayload(BaseModel):
@@ -335,7 +376,7 @@ async def post_assessment(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute(
+            upsert_status = await conn.execute(
                 """
                 INSERT INTO tier_1_identified.assessments (
                     id, device_token, submitted_at, client_timestamp_ms,
@@ -350,7 +391,9 @@ async def post_assessment(
                     device_model, device_manufacturer, chipset, android_api, android_version,
                     total_ram_mb, max_cpu_freq_mhz, cpu_count, native_variant, perf_cores,
                     recommended_n_batch, app_version,
-                    inference_ms
+                    inference_ms,
+                    age_years, age_months, spo2, treatment_administered, is_test,
+                    guidance_concern, ttft_ms, inference_retries
                 ) VALUES (
                     $1, $2, now(), $3,
                     $4, $5, $6, $7, $8,
@@ -364,7 +407,9 @@ async def post_assessment(
                     $33, $34, $35, $36, $37,
                     $38, $39, $40, $41, $42,
                     $43, $44,
-                    $45
+                    $45,
+                    $46, $47, $48, $49, $50,
+                    $51, $52, $53
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     -- Client is offline-first, so re-POSTs always carry the
@@ -418,13 +463,55 @@ async def post_assessment(
                     -- don't re-run inference. Only overwrite if we actually
                     -- received a new value.
                     inference_ms = COALESCE(EXCLUDED.inference_ms, tier_1_identified.assessments.inference_ms),
-                    -- Only re-queue NER when the free-text fields actually
-                    -- changed. An OS version bump or a new confirmation on an
-                    -- untouched symptoms field shouldn't thrash Presidio.
+                    age_years = EXCLUDED.age_years,
+                    age_months = EXCLUDED.age_months,
+                    spo2 = EXCLUDED.spo2,
+                    treatment_administered = EXCLUDED.treatment_administered,
+                    is_test = EXCLUDED.is_test,
+                    guidance_concern = COALESCE(EXCLUDED.guidance_concern, tier_1_identified.assessments.guidance_concern),
+                    ttft_ms = COALESCE(EXCLUDED.ttft_ms, tier_1_identified.assessments.ttft_ms),
+                    inference_retries = COALESCE(EXCLUDED.inference_retries, tier_1_identified.assessments.inference_retries),
+                    -- Re-queue promotion when ANY tier-2-propagated field
+                    -- changed — not just free text. Before 2026-07-13 only
+                    -- symptoms/condition/referral_notes re-queued, which
+                    -- stranded late clinician confirmations in tier 1 (they
+                    -- never reached analytics). Presidio re-runs on at most
+                    -- a handful of rows per sync; correctness wins.
                     ner_scanned_at = CASE
                         WHEN EXCLUDED.symptoms IS DISTINCT FROM tier_1_identified.assessments.symptoms
                           OR EXCLUDED.condition IS DISTINCT FROM tier_1_identified.assessments.condition
                           OR EXCLUDED.referral_notes IS DISTINCT FROM tier_1_identified.assessments.referral_notes
+                          OR EXCLUDED.guidance_used IS DISTINCT FROM tier_1_identified.assessments.guidance_used
+                          OR EXCLUDED.final_action IS DISTINCT FROM tier_1_identified.assessments.final_action
+                          OR EXCLUDED.issue_tags IS DISTINCT FROM tier_1_identified.assessments.issue_tags
+                          OR EXCLUDED.triage_level IS DISTINCT FROM tier_1_identified.assessments.triage_level
+                          OR EXCLUDED.confidence IS DISTINCT FROM tier_1_identified.assessments.confidence
+                          OR EXCLUDED.treatment IS DISTINCT FROM tier_1_identified.assessments.treatment
+                          OR EXCLUDED.next_steps IS DISTINCT FROM tier_1_identified.assessments.next_steps
+                          OR EXCLUDED.red_flags IS DISTINCT FROM tier_1_identified.assessments.red_flags
+                          OR EXCLUDED.confirmed_signs IS DISTINCT FROM tier_1_identified.assessments.confirmed_signs
+                          OR EXCLUDED.referral_urgency IS DISTINCT FROM tier_1_identified.assessments.referral_urgency
+                          OR EXCLUDED.referral_destination IS DISTINCT FROM tier_1_identified.assessments.referral_destination
+                          OR EXCLUDED.referral_reasons IS DISTINCT FROM tier_1_identified.assessments.referral_reasons
+                          OR EXCLUDED.guidance_concern IS DISTINCT FROM tier_1_identified.assessments.guidance_concern
+                          OR EXCLUDED.ttft_ms IS DISTINCT FROM tier_1_identified.assessments.ttft_ms
+                          OR EXCLUDED.inference_retries IS DISTINCT FROM tier_1_identified.assessments.inference_retries
+                          OR EXCLUDED.temperature IS DISTINCT FROM tier_1_identified.assessments.temperature
+                          OR EXCLUDED.pulse_rate IS DISTINCT FROM tier_1_identified.assessments.pulse_rate
+                          OR EXCLUDED.blood_pressure IS DISTINCT FROM tier_1_identified.assessments.blood_pressure
+                          OR EXCLUDED.respiratory_rate IS DISTINCT FROM tier_1_identified.assessments.respiratory_rate
+                          OR EXCLUDED.spo2 IS DISTINCT FROM tier_1_identified.assessments.spo2
+                          OR EXCLUDED.sex IS DISTINCT FROM tier_1_identified.assessments.sex
+                          OR EXCLUDED.age_range IS DISTINCT FROM tier_1_identified.assessments.age_range
+                          OR EXCLUDED.age_years IS DISTINCT FROM tier_1_identified.assessments.age_years
+                          OR EXCLUDED.age_months IS DISTINCT FROM tier_1_identified.assessments.age_months
+                          OR EXCLUDED.role IS DISTINCT FROM tier_1_identified.assessments.role
+                          OR EXCLUDED.custom_role IS DISTINCT FROM tier_1_identified.assessments.custom_role
+                          OR EXCLUDED.district IS DISTINCT FROM tier_1_identified.assessments.district
+                          OR EXCLUDED.duration_value IS DISTINCT FROM tier_1_identified.assessments.duration_value
+                          OR EXCLUDED.duration_unit IS DISTINCT FROM tier_1_identified.assessments.duration_unit
+                          OR EXCLUDED.treatment_administered IS DISTINCT FROM tier_1_identified.assessments.treatment_administered
+                          OR EXCLUDED.is_test IS DISTINCT FROM tier_1_identified.assessments.is_test
                         THEN NULL
                         ELSE tier_1_identified.assessments.ner_scanned_at
                     END,
@@ -432,9 +519,20 @@ async def post_assessment(
                         WHEN EXCLUDED.symptoms IS DISTINCT FROM tier_1_identified.assessments.symptoms
                           OR EXCLUDED.condition IS DISTINCT FROM tier_1_identified.assessments.condition
                           OR EXCLUDED.referral_notes IS DISTINCT FROM tier_1_identified.assessments.referral_notes
+                          OR EXCLUDED.custom_role IS DISTINCT FROM tier_1_identified.assessments.custom_role
+                          OR EXCLUDED.treatment IS DISTINCT FROM tier_1_identified.assessments.treatment
+                          OR EXCLUDED.next_steps IS DISTINCT FROM tier_1_identified.assessments.next_steps
+                          OR EXCLUDED.treatment_administered IS DISTINCT FROM tier_1_identified.assessments.treatment_administered
                         THEN FALSE
                         ELSE tier_1_identified.assessments.ner_flagged
                     END
+                -- Ownership guard (2026-07-13): only the device that first
+                -- created this id may update it. Without this, any enrolled
+                -- device POSTing an existing UUID silently overwrote another
+                -- device's clinical record. When the guard blocks, the row is
+                -- untouched; we audit it below instead of erroring, so a
+                -- re-enrolled device retrying old syncs doesn't wedge its queue.
+                WHERE tier_1_identified.assessments.device_token = EXCLUDED.device_token
                 """,
                 str(payload.id), device_id, payload.timestamp,
                 payload.role, payload.custom_role, payload.symptoms,
@@ -464,6 +562,10 @@ async def post_assessment(
                 payload.device.perf_cores,
                 payload.device.recommended_n_batch, payload.device.app_version,
                 payload.inference_ms,
+                payload.age_years, payload.age_months,
+                payload.vital_signs.spo2, payload.treatment_administered,
+                payload.is_test,
+                payload.guidance_concern, payload.ttft_ms, payload.inference_retries,
             )
             await conn.execute(
                 """
@@ -482,6 +584,19 @@ async def post_assessment(
                 payload.device.device_model, payload.device.chipset,
                 payload.device.android_api, payload.device.app_version,
             )
+    if upsert_status == "INSERT 0 0":
+        # Ownership guard fired: the id exists and belongs to another device.
+        # Row untouched. 200 back to the client so a re-enrolled device's sync
+        # queue doesn't wedge, but leave a loud trail for ops review.
+        log.warning(
+            "assessment upsert DENIED (ownership): device=%s attempted id=%s",
+            device_id, payload.id,
+        )
+        await audit(
+            device_id, "assessment_upsert_denied_ownership",
+            str(payload.id), request.state.client_ip,
+        )
+        return {"status": "ok", "id": str(payload.id)}
     await audit(device_id, "assessment_upsert", str(payload.id), request.state.client_ip)
     return {"status": "ok", "id": str(payload.id)}
 
@@ -496,7 +611,7 @@ async def post_paused(
     if pool is None:
         raise HTTPException(503, "Service unavailable")
     async with pool.acquire() as conn:
-        await conn.execute(
+        status = await conn.execute(
             """
             INSERT INTO tier_1_identified.paused_consultations (
                 id, device_token, role, symptoms, age_range, pause_reason, note
@@ -507,10 +622,22 @@ async def post_paused(
                 age_range = EXCLUDED.age_range,
                 pause_reason = EXCLUDED.pause_reason,
                 note = EXCLUDED.note
+            -- Ownership guard (2026-07-13): same rationale as /assessments.
+            WHERE tier_1_identified.paused_consultations.device_token = EXCLUDED.device_token
             """,
             str(payload.id), device_id, payload.role, payload.symptoms,
             payload.age, payload.pause_reason, payload.note,
         )
+    if status == "INSERT 0 0":
+        log.warning(
+            "paused upsert DENIED (ownership): device=%s attempted id=%s",
+            device_id, payload.id,
+        )
+        await audit(
+            device_id, "paused_upsert_denied_ownership",
+            str(payload.id), request.state.client_ip,
+        )
+        return {"status": "ok", "id": str(payload.id)}
     await audit(device_id, "paused_upsert", str(payload.id), request.state.client_ip)
     return {"status": "ok", "id": str(payload.id)}
 
