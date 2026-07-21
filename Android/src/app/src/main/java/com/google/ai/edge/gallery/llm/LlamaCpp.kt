@@ -155,9 +155,14 @@ object LlamaCpp {
         // A17 with MedGemma-4B Q4. Text completions only — never enable for
         // batched serving (it inverts the gain).
         specDecode: Boolean = false,
+        // §7.2: retry attempt number. The native seed is derived from the prompt
+        // content XOR attempt, so the SAME patient input is deterministic across
+        // sessions/devices, while a parse-failure retry (attempt=1) draws differently
+        // and can escape a bad generation. 0 for the normal first pass.
+        attempt: Int = 0,
     ): String {
         if (!nativeLoaded) return """{"error":"Native library not loaded"}"""
-        return nativeCompletion(handle, prompt, nPredict, temperature, topK, topP, stopSequences, nMinTokens, specDecode, callback)
+        return nativeCompletion(handle, prompt, nPredict, temperature, topK, topP, stopSequences, nMinTokens, specDecode, attempt, callback)
     }
 
     /**
@@ -225,10 +230,11 @@ object LlamaCpp {
         temperature: Float,
         topK: Int,
         topP: Float,
-        callback: TokenCallback
+        callback: TokenCallback,
+        attempt: Int = 0,   // §7.2: see completion(); vision retry passes 1
     ): String {
         if (!nativeLoaded) return """{"error":"Native library not loaded"}"""
-        return nativeCompletionWithImage(handle, prompt, imageData, nPredict, temperature, topK, topP, callback)
+        return nativeCompletionWithImage(handle, prompt, imageData, nPredict, temperature, topK, topP, attempt, callback)
     }
 
     private external fun nativeInitModel(modelPath: String, nCtx: Int, nGpuLayers: Int, kvCacheType: Int, nBatch: Int): Long
@@ -236,7 +242,7 @@ object LlamaCpp {
     private external fun nativeCompletion(
         handle: Long, prompt: String, nPredict: Int,
         temperature: Float, topK: Int, topP: Float,
-        stopSequences: String, nMinTokens: Int, specDecode: Boolean, callback: TokenCallback
+        stopSequences: String, nMinTokens: Int, specDecode: Boolean, attempt: Int, callback: TokenCallback
     ): String
     private external fun nativePrefill(handle: Long, prompt: String): Int
     private external fun nativeStopCompletion(handle: Long)
@@ -249,7 +255,7 @@ object LlamaCpp {
     private external fun nativeEncodeImagePrefix(handle: Long, prefixPrompt: String, imageData: ByteArray): Int
     private external fun nativeCompletionWithImage(
         handle: Long, prompt: String, imageData: ByteArray, nPredict: Int,
-        temperature: Float, topK: Int, topP: Float, callback: TokenCallback
+        temperature: Float, topK: Int, topP: Float, attempt: Int, callback: TokenCallback
     ): String
 }
 

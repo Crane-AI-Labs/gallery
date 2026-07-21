@@ -597,8 +597,8 @@ class HealthDemoViewModel @Inject constructor(
     private fun runMedGemmaInferenceWithRetry(state: HealthDemoUiState): HealthGuidance? {
         val confirmedSigns = state.confirmedSigns
 
-        // First attempt
-        val firstResult = runMedGemmaInference(state)
+        // First attempt (attempt=0: seed derived from prompt content only)
+        val firstResult = runMedGemmaInference(state, attempt = 0)
         // Safe diagnostic: log format signature without PHI
         val firstPrefix = firstResult.take(40).replace(Regex("[a-zA-Z]{4,}"), "***")
         Log.d(TAG, "Attempt 1: ${firstResult.length} chars, starts with: $firstPrefix")
@@ -620,7 +620,9 @@ class HealthDemoViewModel @Inject constructor(
             prefixWarmed = false  // clear wiped the cached prefix; retry re-fills it
         }
 
-        val secondResult = runMedGemmaInference(state)
+        // §7.2: attempt=1 changes the derived seed, so the retry draws a genuinely
+        // different sample instead of replaying the identical failing output.
+        val secondResult = runMedGemmaInference(state, attempt = 1)
         val secondPrefix = secondResult.take(40).replace(Regex("[a-zA-Z]{4,}"), "***")
         Log.d(TAG, "Attempt 2: ${secondResult.length} chars, starts with: $secondPrefix")
         val secondParse = GuidanceValidator.parseAndValidate(secondResult, confirmedSigns)
@@ -785,7 +787,7 @@ class HealthDemoViewModel @Inject constructor(
         }
     }
 
-    private fun runMedGemmaInference(state: HealthDemoUiState): String {
+    private fun runMedGemmaInference(state: HealthDemoUiState, attempt: Int = 0): String {
         // Load model if not already loaded (idempotent; prewarm may have done it)
         if (modelHandle == 0L) {
             setStatus("Loading...")
@@ -845,6 +847,7 @@ class HealthDemoViewModel @Inject constructor(
                     topK = 40,
                     topP = 0.9f,
                     callback = callback,
+                    attempt = attempt,   // §7.2: deterministic per patient; retry draws differently
                 )
             } else {
                 setStatus("Generating assessment...")
@@ -862,6 +865,7 @@ class HealthDemoViewModel @Inject constructor(
                     // 1.0.16: ngram-map-k4v self-speculation. The XML output
                     // repeats prompt phrases heavily — ideal for ngram drafts.
                     specDecode = true,
+                    attempt = attempt,   // §7.2
                 )
             }
         } else {
@@ -875,6 +879,7 @@ class HealthDemoViewModel @Inject constructor(
                 stopSequences = "</r>", callback = callback,
                 // 1.0.16: ngram-map-k4v self-speculation (see above).
                 specDecode = true,
+                attempt = attempt,   // §7.2
             )
         }
 

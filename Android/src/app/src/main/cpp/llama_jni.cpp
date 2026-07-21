@@ -345,11 +345,23 @@ struct inference_context {
 };
 
 // FNV-1a over bytes — cheap identity check for the cached vision prefix/image.
+// §7.2: content-derived sampler seed. Same patient input → same seed → same
+// output, across sessions AND devices; a parse-failure retry (attempt=1) gets a
+// genuinely different draw and can escape a bad generation. Greedy (topK=1)
+// ignores the seed entirely; temp/topK/topP are untouched.
+static uint32_t assessment_seed(const std::string & prompt_str, int attempt);
+
 static uint64_t fnv1a(const void * data, size_t len) {
     const unsigned char * p = (const unsigned char *) data;
     uint64_t h = 1469598103934665603ULL;
     for (size_t i = 0; i < len; i++) { h ^= p[i]; h *= 1099511628211ULL; }
     return h;
+}
+
+static uint32_t assessment_seed(const std::string & prompt_str, int attempt) {
+    const uint64_t h = fnv1a(prompt_str.data(), prompt_str.size())
+                     ^ ((uint64_t) attempt * 0x9E3779B97F4A7C15ULL);
+    return (uint32_t) h;
 }
 
 // ─── CPU Topology Detection ──────────────────────────────────────────────────
@@ -438,7 +450,8 @@ static std::vector<int> cores_by_freq_desc() {
     return ids;
 }
 
-static void rebuild_sampler(inference_context * inf_ctx, float temperature, int top_k, float top_p) {
+static void rebuild_sampler(inference_context * inf_ctx, float temperature, int top_k, float top_p,
+                            uint32_t seed) {
     if (inf_ctx->sampler) {
         llama_sampler_free(inf_ctx->sampler);
     }
@@ -446,7 +459,7 @@ static void rebuild_sampler(inference_context * inf_ctx, float temperature, int 
     llama_sampler_chain_add(sampler, llama_sampler_init_top_k(top_k));
     llama_sampler_chain_add(sampler, llama_sampler_init_top_p(top_p, 1));
     llama_sampler_chain_add(sampler, llama_sampler_init_temp(temperature));
-    llama_sampler_chain_add(sampler, llama_sampler_init_dist(42));
+    llama_sampler_chain_add(sampler, llama_sampler_init_dist(seed));  // §7.2: per-assessment seed
     inf_ctx->sampler = sampler;
     inf_ctx->temperature = temperature;
     inf_ctx->top_k = top_k;
@@ -561,8 +574,9 @@ static jlong init_model_full(const char *path, int nCtx, int nGpuLayers,
         LOGE("Failed to create threadpool, falling back to default");
     }
 
-    // Default sampler params
-    rebuild_sampler(inf_ctx, 0.7f, 40, 0.9f);
+    // Default sampler params (placeholder seed — every completion call
+    // rebuilds with its content-derived assessment seed before sampling)
+    rebuild_sampler(inf_ctx, 0.7f, 40, 0.9f, 42u);
 
     LOGI("Model loaded successfully");
     return reinterpret_cast<jlong>(inf_ctx);
@@ -664,6 +678,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
     jstring stopSequences,
     jint nMinTokens,
     jboolean specDecode,
+    jint attempt,
     jobject callback
 ) {
     auto * inf_ctx = reinterpret_cast<inference_context *>(handle);
@@ -676,16 +691,15 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletion(
 
     apply_debug_greedy(topK);
 
-    // Rebuild sampler if params changed
-    if (temperature != inf_ctx->temperature ||
-        topK != inf_ctx->top_k ||
-        topP != inf_ctx->top_p) {
-        rebuild_sampler(inf_ctx, temperature, topK, topP);
-    }
-
     const char *prompt_cstr = env->GetStringUTFChars(prompt, nullptr);
     std::string prompt_str(prompt_cstr);
     env->ReleaseStringUTFChars(prompt, prompt_cstr);
+
+    // §7.2: rebuild every call — the seed is derived from the prompt content
+    // XOR the retry attempt, so identical patient input reproduces identically
+    // (across sessions and devices) while a parse-failure retry draws fresh.
+    rebuild_sampler(inf_ctx, temperature, topK, topP,
+                    assessment_seed(prompt_str, (int) attempt));
 
     // Stop sequence (e.g. "</r>"): caps runaway generation past the closing
     // XML tag. Checked at while-loop boundaries where the KV cache is
@@ -1231,6 +1245,7 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletionWithImage(
     jfloat temperature,
     jint topK,
     jfloat topP,
+    jint attempt,
     jobject callback
 ) {
     auto * inf_ctx = reinterpret_cast<inference_context *>(handle);
@@ -1241,13 +1256,6 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletionWithImage(
     inf_ctx->stop_requested = false;
 
     apply_debug_greedy(topK);
-
-    // Rebuild sampler if params changed
-    if (temperature != inf_ctx->temperature ||
-        topK != inf_ctx->top_k ||
-        topP != inf_ctx->top_p) {
-        rebuild_sampler(inf_ctx, temperature, topK, topP);
-    }
 
     const char *prompt_cstr = env->GetStringUTFChars(prompt, nullptr);
     std::string prompt_str(prompt_cstr);
@@ -1268,6 +1276,13 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeCompletionWithImage(
     // step, so the tail attends causally to the same resident KV.
     const std::string MEDIA_MARKER = "<__media__>";
     uint64_t img_hash = fnv1a(imgBytes, (size_t) imgLen);
+
+    // §7.2 (vision): seed from prompt content XOR image bytes XOR attempt —
+    // the full input chooses the draw, so identical (text + photo) reproduces
+    // identically and a retry still gets a fresh draw.
+    rebuild_sampler(inf_ctx, temperature, topK, topP,
+                    assessment_seed(prompt_str, (int) attempt) ^ (uint32_t) img_hash);
+
     size_t marker_pos = prompt_str.find(MEDIA_MARKER);
     std::string prefix_str = (marker_pos == std::string::npos)
         ? prompt_str : prompt_str.substr(0, marker_pos + MEDIA_MARKER.size());
