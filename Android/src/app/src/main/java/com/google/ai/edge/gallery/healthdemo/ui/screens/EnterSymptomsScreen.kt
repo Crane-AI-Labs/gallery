@@ -98,14 +98,8 @@ fun EnterSymptomsScreen(
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
 
-    // #01: hold screen-on only while this consultation screen is active
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        val window = (context as? android.app.Activity)?.window
-        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose {
-            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-    }
+    // (Screen-on is now held centrally by HealthDemoNavGraph, keyed on route —
+    // see the S1 fix there; the old per-screen add/clear raced on nav transitions.)
 
     // #07: record session start at screen open, not at first keystroke
     LaunchedEffect(Unit) { viewModel.markSessionStart() }

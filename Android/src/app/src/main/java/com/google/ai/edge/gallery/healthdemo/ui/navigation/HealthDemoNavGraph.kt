@@ -1,12 +1,14 @@
 package com.google.ai.edge.gallery.healthdemo.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.google.ai.edge.gallery.healthdemo.data.AppSettings
@@ -75,6 +77,37 @@ fun HealthDemoNavGraph(
         HealthDemoDestinations.LANDING
     } else {
         HealthDemoDestinations.CONSENT
+    }
+
+    // ── S1 screen-on fix (1.0.21): SINGLE central owner of FLAG_KEEP_SCREEN_ON ──
+    // The prior per-screen add/clear (EnterSymptoms / Generating / Guidance) raced
+    // on nav transitions — the exiting screen's onDispose cleared the flag AFTER
+    // the entering screen added it, so the window carried NO flag during the
+    // 46–176 s generation and the display slept (1.0.20 benchmark §5: 8–9× slower,
+    // verified flag-absent via `dumpsys window` on all three fleet devices).
+    // One writer keyed on the current route removes the race: while the route
+    // stays inside the consultation set the DisposableEffect key doesn't change,
+    // so the flag is never momentarily cleared across entry→generating→guidance.
+    val keepScreenOnRoutes = remember {
+        setOf(
+            HealthDemoDestinations.PATIENT_ASSESSMENT,
+            HealthDemoDestinations.GENERATING_ASSESSMENT,
+            HealthDemoDestinations.GUIDANCE,
+            HealthDemoDestinations.CLINICIAN_CONFIRMATION,
+            HealthDemoDestinations.CASE_SAVED,
+            HealthDemoDestinations.CONSULTATION_SAVED,
+        )
+    }
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    val keepScreenOn = currentRoute != null && currentRoute in keepScreenOnRoutes
+    DisposableEffect(keepScreenOn) {
+        val window = (context as? android.app.Activity)?.window
+        if (keepScreenOn) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     NavHost(navController = navController, startDestination = startDestination) {

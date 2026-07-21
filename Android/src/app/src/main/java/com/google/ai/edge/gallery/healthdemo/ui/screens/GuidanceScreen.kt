@@ -42,7 +42,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -96,15 +95,9 @@ fun GuidanceScreen(
     val referralSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pauseSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
 
-    DisposableEffect(Unit) {
-        val window = (context as? android.app.Activity)?.window
-        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose {
-            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-    }
+    // (Screen-on is now held centrally by HealthDemoNavGraph, keyed on route —
+    // see the S1 fix there; the old per-screen add/clear raced on nav transitions.)
 
     // Auto-save when guidance is first displayed
     LaunchedEffect(guidance) {

@@ -51,19 +51,11 @@ fun GeneratingAssessmentScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // #01 gap (found in 1.0.18 sweep §6): this screen — the LONGEST phase,
-    // 1–4 min of inference — was the only consultation screen NOT holding
-    // KEEP_SCREEN_ON. EnterSymptoms clears its flag on navigate-away, so the
-    // display could sleep mid-generation and the scheduler parks the cores
-    // (~2× slower, measured on the Infinix in the 1.0.15 benchmark).
-    val screenCtx = androidx.compose.ui.platform.LocalContext.current
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        val window = (screenCtx as? android.app.Activity)?.window
-        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose {
-            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-    }
+    // NOTE: FLAG_KEEP_SCREEN_ON is now owned centrally by HealthDemoNavGraph
+    // (single writer, keyed on the current route) so it survives the
+    // EnterSymptoms→Generating→Guidance transitions without the per-screen
+    // add/clear race that left the window flag-less during generation
+    // (1.0.20 benchmark §5: screen slept mid-decode, 8–9× slower on all 3 devices).
 
     // Self-heal after process death: if Compose restores the nav stack onto
     // this screen with no active inference and no result, the ViewModel was
