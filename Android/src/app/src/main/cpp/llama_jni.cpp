@@ -1207,6 +1207,55 @@ Java_com_google_ai_edge_gallery_llm_LlamaCpp_nativeEncodeImagePrefix(
         return -1;
     }
 
+    // Vision-determinism probe (diagnostic; `setprop debug.eh.visionprobe 1`):
+    // encode the SAME image chunk twice in-process and hash both embedding
+    // tensors. In-process hash mismatch = the ViT forward itself is
+    // non-deterministic (uninitialized read per pass / unstable op). In-process
+    // match but cross-process (app restart) mismatch = process-state-dependent
+    // (allocator/ASLR-exposed uninitialized memory, or preprocess). Probe mode
+    // logs and returns early — the app treats it as a skipped prewarm, so the
+    // normal flow is unaffected. Investigation: A17 vision triage-flip
+    // (single-threaded encode still diverged → threading exonerated).
+    {
+        char vp[PROP_VALUE_MAX] = {0};
+        if (__system_property_get("debug.eh.visionprobe", vp) > 0 && vp[0] == '1') {
+            for (size_t ci = 0; ci < mtmd_input_chunks_size(chunks); ci++) {
+                const mtmd_input_chunk * ch = mtmd_input_chunks_get(chunks, ci);
+                if (mtmd_input_chunk_get_type(ch) != MTMD_INPUT_CHUNK_TYPE_IMAGE) continue;
+                size_t n_tok = mtmd_input_chunk_get_n_tokens(ch);
+                size_t n_el = (size_t) llama_model_n_embd_inp(inf_ctx->model) * n_tok;
+                uint64_t h0 = 0, h1 = 0; float maxd = 0.0f;
+                std::vector<float> first;
+                for (int pass = 0; pass < 2; pass++) {
+                    double t0 = now_ms();
+                    if (mtmd_encode_chunk(inf_ctx->mtmd_ctx, ch) != 0) {
+                        LOGE("VISION-PROBE: encode pass %d failed", pass);
+                        mtmd_input_chunks_free(chunks);
+                        return -1;
+                    }
+                    float * e = mtmd_get_output_embd(inf_ctx->mtmd_ctx);
+                    uint64_t h = fnv1a(e, n_el * sizeof(float));
+                    if (pass == 0) { h0 = h; first.assign(e, e + n_el); }
+                    else {
+                        h1 = h;
+                        for (size_t i = 0; i < n_el; i++) {
+                            float d = e[i] - first[i];
+                            if (d < 0) d = -d;
+                            if (d > maxd) maxd = d;
+                        }
+                    }
+                    LOGI("VISION-PROBE pass %d: embd_hash=%016llx (%zu floats, %.0f ms)",
+                         pass, (unsigned long long) h, n_el, now_ms() - t0);
+                }
+                LOGI("VISION-PROBE VERDICT: %s  maxdiff=%g  img_hash=%016llx",
+                     h0 == h1 ? "IN-PROCESS-DETERMINISTIC" : "IN-PROCESS-DIVERGENT",
+                     (double) maxd, (unsigned long long) img_hash);
+            }
+            mtmd_input_chunks_free(chunks);
+            return -1;  // probe mode: skip the normal prefill (non-fatal to the app)
+        }
+    }
+
     // Fresh cache — the multimodal batch must start at position 0.
     llama_memory_clear(llama_get_memory(inf_ctx->ctx), true);
     inf_ctx->cache_tokens.clear();
