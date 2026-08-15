@@ -65,9 +65,11 @@ static void apply_debug_greedy(jint & topK) {
 // into this JNI so it works against the prebuilt librnllama (which has no
 // common/ library). "k4v" = each key n-gram tracks up to 4 candidate value
 // m-grams with occurrence statistics; a draft is proposed only when one value
-// clearly dominates (max_occur >= 2 * sum_others). Crane Mesh measured this
-// variant at +9.5% tok/s on the Galaxy A17 with MedGemma-4B Q4, lossless.
-// Single-stream only — never combine with batched serving.
+// clearly dominates (max_occur >= 2 * sum_others). Lossless (verified via the
+// Spark 2x2 on/off matrix); speedup is input-dependent — ~2.5x tok/s when the
+// output revisits prompt n-grams (in-distribution), ~neutral on OOD text
+// (acceptance ranges ~95% down to ~20%). Single-stream only — never combine
+// with batched serving.
 
 #define SPEC_NGRAM_MAX_VALUES 4
 #define SPEC_NGRAM_HASH_MAP_SIZE 262144
